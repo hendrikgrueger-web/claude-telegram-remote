@@ -1,6 +1,5 @@
 #!/bin/bash
-# start.sh — launchd Wrapper: lädt .env und startet bot.py
-# PYTHON_BIN wird von install.sh mit dem absoluten Pfad ersetzt.
+# start.sh — launchd Wrapper: lädt .env und startet bot.py via venv
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -13,4 +12,4 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
     set +a
 fi
 
-exec PYTHON_BIN "$SCRIPT_DIR/bot.py"
+exec "$SCRIPT_DIR/.venv/bin/python3" "$SCRIPT_DIR/bot.py"

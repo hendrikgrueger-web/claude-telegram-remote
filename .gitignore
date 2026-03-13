@@ -10,3 +10,4 @@ workspaces.json
 dist/
 build/
 .DS_Store
+.venv/

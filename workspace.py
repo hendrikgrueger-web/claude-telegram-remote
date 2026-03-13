@@ -66,6 +66,14 @@ class WorkspaceManager:
         ws["session_id"] = None
         self._save()
 
+    def get_model(self) -> Optional[str]:
+        return self.get_active().get("model")
+
+    def set_model(self, model: Optional[str]) -> None:
+        ws = self.get_active()
+        ws["model"] = model
+        self._save()
+
     def _create_workspace(self, name: str, directory: str) -> None:
         self._state["workspaces"][name] = {
             "directory": str(Path(directory).expanduser()),

@@ -67,6 +67,11 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/ws <name>` — Workspace wechseln / anlegen\n"
         "`/ws <name> <pfad>` — Workspace mit Verzeichnis anlegen\n"
         "`/ws delete <name>` — Workspace löschen\n\n"
+        "*Claude-Befehle:*\n"
+        "`/model` — Aktuelles Modell anzeigen\n"
+        "`/model opus|sonnet|haiku` — Modell wechseln\n"
+        "`/clear` — Session löschen, neu starten\n"
+        "`/compact` — Kontext zurücksetzen\n\n"
         "*System-Befehle:*\n"
         "`/stop` — Laufende Anfrage abbrechen\n"
         "`/status` — Aktueller Workspace und Verzeichnis\n"
@@ -150,6 +155,68 @@ async def cmd_ws(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# ── Claude Code Slash-Commands ───────────────────────────────────────────────
+
+MODEL_ALIASES = {
+    "opus": "claude-opus-4-6",
+    "sonnet": "claude-sonnet-4-6",
+    "haiku": "claude-haiku-4-5-20251001",
+}
+
+
+@authorized_only
+async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    if not args:
+        current = ws_manager.get_model() or "default (sonnet)"
+        aliases = " | ".join(f"`{a}`" for a in MODEL_ALIASES)
+        await update.message.reply_text(
+            f"*Aktuelles Modell:* `{current}`\n\n"
+            f"*Verfügbar:* {aliases}\n"
+            f"*Setzen:* `/model opus`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    choice = args[0].lower()
+    if choice in MODEL_ALIASES:
+        ws_manager.set_model(MODEL_ALIASES[choice])
+        await update.message.reply_text(
+            f"Modell auf *{choice}* (`{MODEL_ALIASES[choice]}`) gesetzt.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    elif choice == "default":
+        ws_manager.set_model(None)
+        await update.message.reply_text("Modell auf *default* zurückgesetzt.", parse_mode=ParseMode.MARKDOWN)
+    else:
+        # Volles Modell-ID übergeben (z.B. claude-sonnet-4-6)
+        ws_manager.set_model(choice)
+        await update.message.reply_text(
+            f"Modell auf `{choice}` gesetzt.", parse_mode=ParseMode.MARKDOWN
+        )
+
+
+@authorized_only
+async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ws_manager.clear_session_id()
+    name = ws_manager.get_active_name()
+    await update.message.reply_text(
+        f"Session in *{name}* gelöscht — nächste Nachricht startet neue Unterhaltung.",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+@authorized_only
+async def cmd_compact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ws_manager.clear_session_id()
+    name = ws_manager.get_active_name()
+    await update.message.reply_text(
+        f"Kontext in *{name}* zurückgesetzt (Session gelöscht).\n"
+        f"Nächste Nachricht startet frisch.",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
 # ── Nachrichten-Handler (→ Claude) ───────────────────────────────────────────
 
 @authorized_only
@@ -184,6 +251,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             directory=ws["directory"],
             session_id=session_id,
             on_chunk=streamer.append,
+            model=ws_manager.get_model(),
         )
         await streamer.finalize()
 
@@ -215,6 +283,9 @@ def main():
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("stop", cmd_stop))
     app.add_handler(CommandHandler("ws", cmd_ws))
+    app.add_handler(CommandHandler("model", cmd_model))
+    app.add_handler(CommandHandler("clear", cmd_clear))
+    app.add_handler(CommandHandler("compact", cmd_compact))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot gestartet. Workspace: %s", ws_manager.get_active_name())

@@ -66,6 +66,7 @@
       display: flex;
       gap: 1.5rem;
       list-style: none;
+      align-items: center;
     }
     .nav-links a {
       color: var(--muted);
@@ -76,6 +77,40 @@
     }
     .nav-links a:hover { color: var(--text); }
     @media (max-width: 640px) { .nav-links { display: none; } }
+
+    /* ── LANG SWITCHER ── */
+    .lang-switcher {
+      display: inline-flex;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+    .lang-btn {
+      background: transparent;
+      color: var(--muted);
+      border: none;
+      padding: 0.3rem 0.6rem;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: inherit;
+      font-weight: inherit;
+      letter-spacing: inherit;
+      transition: background 0.2s, color 0.2s;
+    }
+    .lang-btn:first-child { border-right: 1px solid var(--border); }
+    .lang-btn.active {
+      background: rgba(0, 212, 255, 0.12);
+      color: var(--accent);
+    }
+    .lang-btn:hover:not(.active) { color: var(--text); }
+
+    /* Language visibility */
+    [data-lang="en"] { display: none; }
+    html[lang="en"] [data-lang="de"] { display: none; }
+    html[lang="en"] [data-lang="en"] { display: revert; }
 
     /* ── HERO ── */
     .hero {
@@ -450,11 +485,17 @@
       Claude Telegram Remote
     </a>
     <ul class="nav-links">
-      <li><a href="#features">Features</a></li>
-      <li><a href="#installation">Installation</a></li>
-      <li><a href="#commands">Befehle</a></li>
-      <li><a href="#troubleshooting">Hilfe</a></li>
+      <li><a href="#features" data-lang="de">Features</a><a href="#features" data-lang="en">Features</a></li>
+      <li><a href="#installation" data-lang="de">Installation</a><a href="#installation" data-lang="en">Installation</a></li>
+      <li><a href="#commands" data-lang="de">Befehle</a><a href="#commands" data-lang="en">Commands</a></li>
+      <li><a href="#troubleshooting" data-lang="de">Hilfe</a><a href="#troubleshooting" data-lang="en">Help</a></li>
       <li><a href="https://github.com/hendrikgrueger-web/claude-telegram-remote">GitHub</a></li>
+      <li>
+        <div class="lang-switcher">
+          <button class="lang-btn active" data-set-lang="de">DE</button>
+          <button class="lang-btn" data-set-lang="en">EN</button>
+        </div>
+      </li>
     </ul>
   </div>
 </nav>
@@ -468,14 +509,22 @@
     Open Source · MIT License
   </div>
   <h1>Claude Remote Control<br /><span>via Telegram</span></h1>
-  <p>Vollständiger Terminal-Zugriff auf deinen Mac mini — direkt aus Telegram. Überall. Jederzeit.</p>
+  <p data-lang="de">Vollständiger Terminal-Zugriff auf deinen Mac mini — direkt aus Telegram. Überall. Jederzeit.</p>
+  <p data-lang="en">Full terminal access to your Mac mini — directly from Telegram. Anywhere. Anytime.</p>
   <div class="hero-actions">
-    <a class="btn btn-primary" href="#installation">
+    <a class="btn btn-primary" href="#installation" data-lang="de">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
         <path d="M20 21H4a2 2 0 0 1-2-2v-1a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2z"/>
       </svg>
       Installation starten
+    </a>
+    <a class="btn btn-primary" href="#installation" data-lang="en">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
+        <path d="M20 21H4a2 2 0 0 1-2-2v-1a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2z"/>
+      </svg>
+      Get Started
     </a>
     <a class="btn btn-ghost" href="https://github.com/hendrikgrueger-web/claude-telegram-remote">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -486,7 +535,7 @@
   </div>
 
   <!-- Terminal preview -->
-  <div class="terminal">
+  <div class="terminal" data-lang="de">
     <div class="terminal-bar">
       <div class="dot dot-red"></div>
       <div class="dot dot-yellow"></div>
@@ -506,16 +555,46 @@
       <div><span class="t-hl">claude-bot</span><span class="t-out">  Workspaces: [main] projects  server</span></div>
     </div>
   </div>
+  <div class="terminal" data-lang="en">
+    <div class="terminal-bar">
+      <div class="dot dot-red"></div>
+      <div class="dot dot-yellow"></div>
+      <div class="dot dot-green"></div>
+      <span class="terminal-title">Telegram → Mac mini</span>
+    </div>
+    <div class="terminal-body">
+      <div><span class="t-prompt">you@telegram  →</span> <span class="t-cmd">Create a React component for a button</span></div>
+      <div><span class="t-out">                 Workspace: main  |  /Users/hendrik/projects</span></div>
+      <div>&nbsp;</div>
+      <div><span class="t-hl">claude-bot</span><span class="t-out">  Creating the component...</span></div>
+      <div><span class="t-out">             ▸ Creating</span> <span class="t-cmd">src/components/Button.tsx</span></div>
+      <div><span class="t-out">             ▸ Writing 47 lines</span></div>
+      <div><span class="t-ok">             ✓ Done! Button.tsx has been created.</span></div>
+      <div>&nbsp;</div>
+      <div><span class="t-prompt">you@telegram  →</span> <span class="t-cmd">/ws list</span></div>
+      <div><span class="t-hl">claude-bot</span><span class="t-out">  Workspaces: [main] projects  server</span></div>
+    </div>
+  </div>
 </section>
 
 <!-- FEATURES -->
 <section id="features">
   <div class="container">
-    <div class="section-label">Features</div>
-    <h2>Alles was du brauchst</h2>
-    <p class="section-sub">Vollständige Claude Code Power — ferngesteuert über den Telegram-Messenger deines Vertrauens.</p>
+    <!-- DE -->
+    <div data-lang="de">
+      <div class="section-label">Features</div>
+      <h2>Alles was du brauchst</h2>
+      <p class="section-sub">Vollständige Claude Code Power — ferngesteuert über den Telegram-Messenger deines Vertrauens.</p>
+    </div>
+    <!-- EN -->
+    <div data-lang="en">
+      <div class="section-label">Features</div>
+      <h2>Everything you need</h2>
+      <p class="section-sub">Full Claude Code power — remote-controlled via your trusted Telegram messenger.</p>
+    </div>
 
-    <div class="features-grid">
+    <!-- DE features -->
+    <div class="features-grid" data-lang="de">
       <div class="feature-card">
         <div class="feature-icon">&#x1F4BB;</div>
         <h3>Terminal-Zugriff von überall</h3>
@@ -547,43 +626,116 @@
         <p>Alle Tools, MCPs und Skills stehen zur Verfügung — genau wie in der lokalen Claude Code CLI.</p>
       </div>
     </div>
+    <!-- EN features -->
+    <div class="features-grid" data-lang="en">
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F4BB;</div>
+        <h3>Terminal access from anywhere</h3>
+        <p>Send any command to your Mac — directly from Telegram. No VPN, no SSH client needed.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F5C2;</div>
+        <h3>Multiple workspaces</h3>
+        <p>Work on different projects simultaneously. Workspaces work like terminal tabs — each with its own directory and context.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F4BE;</div>
+        <h3>Session persistence</h3>
+        <p>Conversation context is preserved. Claude remembers previous messages in the same workspace.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x26A1;</div>
+        <h3>24/7 launchd service</h3>
+        <p>Starts automatically on system boot via macOS launchd. No manual starting or monitoring required.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F4E1;</div>
+        <h3>Live streaming output</h3>
+        <p>Output is streamed in real time — see what Claude is doing without waiting for completion.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x2728;</div>
+        <h3>Full Claude Code power</h3>
+        <p>All tools, MCPs, and skills are available — just like in the local Claude Code CLI.</p>
+      </div>
+    </div>
   </div>
 </section>
 
 <!-- PREREQUISITES -->
 <section id="prerequisites">
   <div class="container">
-    <div class="section-label">Voraussetzungen</div>
-    <h2>Was du brauchst</h2>
-    <p class="section-sub">Vier Dinge — dann bist du startklar.</p>
+    <!-- DE -->
+    <div data-lang="de">
+      <div class="section-label">Voraussetzungen</div>
+      <h2>Was du brauchst</h2>
+      <p class="section-sub">Vier Dinge — dann bist du startklar.</p>
 
-    <div class="prereq-list">
-      <div class="prereq-item">
-        <div class="prereq-num">1</div>
-        <div class="prereq-text">
-          <strong>Mac mit macOS</strong>
-          <span>Läuft am besten als 24/7-Maschine (Mac mini, MacBook im Clamshell-Modus). macOS 13 Ventura oder neuer empfohlen.</span>
+      <div class="prereq-list">
+        <div class="prereq-item">
+          <div class="prereq-num">1</div>
+          <div class="prereq-text">
+            <strong>Mac mit macOS</strong>
+            <span>Läuft am besten als 24/7-Maschine (Mac mini, MacBook im Clamshell-Modus). macOS 13 Ventura oder neuer empfohlen.</span>
+          </div>
+        </div>
+        <div class="prereq-item">
+          <div class="prereq-num">2</div>
+          <div class="prereq-text">
+            <strong>Python 3.10+</strong>
+            <span>Vorinstalliert auf den meisten modernen Macs. Check: <code>python3 --version</code></span>
+          </div>
+        </div>
+        <div class="prereq-item">
+          <div class="prereq-num">3</div>
+          <div class="prereq-text">
+            <strong>Claude Code CLI</strong>
+            <span>Installiere mit: <code>npm install -g @anthropic-ai/claude-code</code>. Benötigt Node.js 18+ und einen Anthropic API Key.</span>
+          </div>
+        </div>
+        <div class="prereq-item">
+          <div class="prereq-num">4</div>
+          <div class="prereq-text">
+            <strong>Telegram-Account &amp; Bot-Token</strong>
+            <span>Erstelle einen Bot via <code>@BotFather</code> in Telegram und notiere den API-Token. Außerdem deine numerische User-ID (z.B. via <code>@userinfobot</code>).</span>
+          </div>
         </div>
       </div>
-      <div class="prereq-item">
-        <div class="prereq-num">2</div>
-        <div class="prereq-text">
-          <strong>Python 3.10+</strong>
-          <span>Vorinstalliert auf den meisten modernen Macs. Check: <code>python3 --version</code></span>
+    </div>
+    <!-- EN -->
+    <div data-lang="en">
+      <div class="section-label">Prerequisites</div>
+      <h2>What you need</h2>
+      <p class="section-sub">Four things — then you're ready to go.</p>
+
+      <div class="prereq-list">
+        <div class="prereq-item">
+          <div class="prereq-num">1</div>
+          <div class="prereq-text">
+            <strong>Mac with macOS</strong>
+            <span>Works best as a 24/7 machine (Mac mini, MacBook in clamshell mode). macOS 13 Ventura or newer recommended.</span>
+          </div>
         </div>
-      </div>
-      <div class="prereq-item">
-        <div class="prereq-num">3</div>
-        <div class="prereq-text">
-          <strong>Claude Code CLI</strong>
-          <span>Installiere mit: <code>npm install -g @anthropic-ai/claude-code</code>. Benötigt Node.js 18+ und einen Anthropic API Key.</span>
+        <div class="prereq-item">
+          <div class="prereq-num">2</div>
+          <div class="prereq-text">
+            <strong>Python 3.10+</strong>
+            <span>Pre-installed on most modern Macs. Check: <code>python3 --version</code></span>
+          </div>
         </div>
-      </div>
-      <div class="prereq-item">
-        <div class="prereq-num">4</div>
-        <div class="prereq-text">
-          <strong>Telegram-Account &amp; Bot-Token</strong>
-          <span>Erstelle einen Bot via <code>@BotFather</code> in Telegram und notiere den API-Token. Außerdem deine numerische User-ID (z.B. via <code>@userinfobot</code>).</span>
+        <div class="prereq-item">
+          <div class="prereq-num">3</div>
+          <div class="prereq-text">
+            <strong>Claude Code CLI</strong>
+            <span>Install with: <code>npm install -g @anthropic-ai/claude-code</code>. Requires Node.js 18+ and an Anthropic API key.</span>
+          </div>
+        </div>
+        <div class="prereq-item">
+          <div class="prereq-num">4</div>
+          <div class="prereq-text">
+            <strong>Telegram account &amp; bot token</strong>
+            <span>Create a bot via <code>@BotFather</code> in Telegram and note the API token. Also your numeric user ID (e.g. via <code>@userinfobot</code>).</span>
+          </div>
         </div>
       </div>
     </div>
@@ -593,46 +745,95 @@
 <!-- INSTALLATION -->
 <section id="installation">
   <div class="container">
-    <div class="section-label">Installation</div>
-    <h2>In 5 Schritten startklar</h2>
-    <p class="section-sub">Das Setup-Script erledigt den Rest automatisch.</p>
+    <!-- DE -->
+    <div data-lang="de">
+      <div class="section-label">Installation</div>
+      <h2>In 5 Schritten startklar</h2>
+      <p class="section-sub">Das Setup-Script erledigt den Rest automatisch.</p>
 
-    <div class="steps">
-      <div class="step">
-        <div class="step-num">1</div>
-        <div class="step-body">
-          <p><strong>Repository klonen</strong></p>
-          <pre>git clone https://github.com/hendrikgrueger-web/claude-telegram-remote.git</pre>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <p><strong>Repository klonen</strong></p>
+            <pre>git clone https://github.com/hendrikgrueger-web/claude-telegram-remote.git</pre>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <p><strong>In das Verzeichnis wechseln</strong></p>
+            <pre>cd claude-telegram-remote</pre>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <p><strong>Setup starten</strong></p>
+            <pre>bash install.sh</pre>
+            <div class="note">Das Script erstellt automatisch ein Python-Virtualenv, installiert alle Abhängigkeiten, sucht die Claude CLI auf deinem System und richtet den macOS launchd-Service ein, damit der Bot im Hintergrund läuft.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <p><strong>Bot-Token &amp; User-ID eingeben</strong></p>
+            <p style="color: var(--muted); font-size: 0.875rem;">Das Setup-Script fragt interaktiv nach deinem Telegram Bot-Token (von @BotFather) und deiner numerischen Telegram User-ID. Diese werden sicher in der lokalen Konfiguration gespeichert.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">5</div>
+          <div class="step-body">
+            <p><strong>Auto-Login</strong> <span style="color: var(--muted); font-size: 0.85rem;">(optional — nur für 24/7-Betrieb ohne Anmeldung)</span></p>
+            <p style="color: var(--muted); font-size: 0.875rem;">Auto-Login ist <strong style="color: var(--text);">nicht zwingend nötig</strong> für den normalen Betrieb. Der Bot läuft automatisch, solange du eingeloggt bist. Nach einem Neustart genügt es, dich ganz normal anzumelden — der launchd-Service startet den Bot dann automatisch im Hintergrund.</p>
+            <p style="color: var(--muted); font-size: 0.875rem; margin-top: 0.5rem;">Nur wenn der Mac nach einem Neustart <em>ohne jede Interaktion</em> den Bot starten soll, aktiviere Auto-Login: Systemeinstellungen &rarr; Allgemein &rarr; <strong>Automatisch anmelden</strong>.</p>
+          </div>
         </div>
       </div>
-      <div class="step">
-        <div class="step-num">2</div>
-        <div class="step-body">
-          <p><strong>In das Verzeichnis wechseln</strong></p>
-          <pre>cd claude-telegram-remote</pre>
+    </div>
+    <!-- EN -->
+    <div data-lang="en">
+      <div class="section-label">Installation</div>
+      <h2>Ready in 5 steps</h2>
+      <p class="section-sub">The setup script takes care of the rest automatically.</p>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <p><strong>Clone the repository</strong></p>
+            <pre>git clone https://github.com/hendrikgrueger-web/claude-telegram-remote.git</pre>
+          </div>
         </div>
-      </div>
-      <div class="step">
-        <div class="step-num">3</div>
-        <div class="step-body">
-          <p><strong>Setup starten</strong></p>
-          <pre>bash install.sh</pre>
-          <div class="note">Das Script installiert alle Abhängigkeiten, richtet den launchd-Service ein und konfiguriert den Bot.</div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <p><strong>Enter the directory</strong></p>
+            <pre>cd claude-telegram-remote</pre>
+          </div>
         </div>
-      </div>
-      <div class="step">
-        <div class="step-num">4</div>
-        <div class="step-body">
-          <p><strong>Bot-Token &amp; User-ID eingeben</strong></p>
-          <p style="color: var(--muted); font-size: 0.875rem;">Das Setup-Script fragt interaktiv nach deinem Telegram Bot-Token (von @BotFather) und deiner numerischen Telegram User-ID. Diese werden sicher in der lokalen Konfiguration gespeichert.</p>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <p><strong>Run the setup</strong></p>
+            <pre>bash install.sh</pre>
+            <div class="note">The script automatically creates a Python virtualenv, installs all dependencies, locates the Claude CLI on your system, and sets up the macOS launchd service so the bot runs in the background.</div>
+          </div>
         </div>
-      </div>
-      <div class="step">
-        <div class="step-num">5</div>
-        <div class="step-body">
-          <p><strong>Auto-Login aktivieren</strong> <span style="color: var(--muted); font-size: 0.85rem;">(für 24/7-Betrieb)</span></p>
-          <p style="color: var(--muted); font-size: 0.875rem;">Damit der Bot nach einem Neustart automatisch startet, muss Auto-Login aktiviert sein:</p>
-          <p style="font-size: 0.875rem; margin-top: 0.5rem;">Systemeinstellungen &rarr; Allgemein &rarr; <strong>Automatisch anmelden</strong> aktivieren</p>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <p><strong>Enter bot token &amp; user ID</strong></p>
+            <p style="color: var(--muted); font-size: 0.875rem;">The setup script interactively asks for your Telegram bot token (from @BotFather) and your numeric Telegram user ID. These are stored securely in the local configuration.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">5</div>
+          <div class="step-body">
+            <p><strong>Auto-Login</strong> <span style="color: var(--muted); font-size: 0.85rem;">(optional — only for unattended 24/7 operation)</span></p>
+            <p style="color: var(--muted); font-size: 0.875rem;">Auto-Login is <strong style="color: var(--text);">not required</strong> for normal use. The bot runs automatically as long as you are logged in. After a reboot, simply log in as usual — the launchd service will start the bot automatically in the background.</p>
+            <p style="color: var(--muted); font-size: 0.875rem; margin-top: 0.5rem;">Only if you want the Mac to start the bot after a reboot <em>without any interaction</em>, enable Auto-Login: System Settings &rarr; General &rarr; <strong>Automatic Login</strong>.</p>
+          </div>
         </div>
       </div>
     </div>
@@ -642,49 +843,131 @@
 <!-- COMMANDS -->
 <section id="commands">
   <div class="container">
-    <div class="section-label">Befehlsreferenz</div>
-    <h2>Alle Befehle</h2>
-    <p class="section-sub">Workspace-Management, Steuerung und Status — alles direkt im Chat.</p>
+    <!-- DE -->
+    <div data-lang="de">
+      <div class="section-label">Befehlsreferenz</div>
+      <h2>Alle Befehle</h2>
+      <p class="section-sub">Workspace-Management, Steuerung und Status — alles direkt im Chat.</p>
 
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Befehl</th>
-            <th>Beschreibung</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><code>/ws list</code></td>
-            <td>Alle vorhandenen Workspaces anzeigen</td>
-          </tr>
-          <tr>
-            <td><code>/ws &lt;name&gt;</code></td>
-            <td>Zu einem Workspace wechseln oder einen neuen anlegen</td>
-          </tr>
-          <tr>
-            <td><code>/ws &lt;name&gt; &lt;pfad&gt;</code></td>
-            <td>Neuen Workspace mit einem bestimmten Arbeitsverzeichnis anlegen</td>
-          </tr>
-          <tr>
-            <td><code>/ws delete &lt;name&gt;</code></td>
-            <td>Einen Workspace und seinen Kontext löschen</td>
-          </tr>
-          <tr>
-            <td><code>/stop</code></td>
-            <td>Laufende Anfrage abbrechen</td>
-          </tr>
-          <tr>
-            <td><code>/status</code></td>
-            <td>Aktuellen Workspace, Verzeichnis und Claude-Version anzeigen</td>
-          </tr>
-          <tr>
-            <td><code>/help</code></td>
-            <td>Alle verfügbaren Befehle anzeigen</td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Befehl</th>
+              <th>Beschreibung</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>/ws list</code></td>
+              <td>Alle vorhandenen Workspaces anzeigen</td>
+            </tr>
+            <tr>
+              <td><code>/ws &lt;name&gt;</code></td>
+              <td>Zu einem Workspace wechseln oder einen neuen anlegen</td>
+            </tr>
+            <tr>
+              <td><code>/ws &lt;name&gt; &lt;pfad&gt;</code></td>
+              <td>Neuen Workspace mit einem bestimmten Arbeitsverzeichnis anlegen</td>
+            </tr>
+            <tr>
+              <td><code>/ws delete &lt;name&gt;</code></td>
+              <td>Einen Workspace und seinen Kontext löschen</td>
+            </tr>
+            <tr>
+              <td><code>/model</code></td>
+              <td>Aktuelles Modell anzeigen</td>
+            </tr>
+            <tr>
+              <td><code>/model opus|sonnet|haiku</code></td>
+              <td>Modell wechseln</td>
+            </tr>
+            <tr>
+              <td><code>/clear</code></td>
+              <td>Session löschen, neue Unterhaltung starten</td>
+            </tr>
+            <tr>
+              <td><code>/compact</code></td>
+              <td>Kontext zurücksetzen</td>
+            </tr>
+            <tr>
+              <td><code>/stop</code></td>
+              <td>Laufende Anfrage abbrechen</td>
+            </tr>
+            <tr>
+              <td><code>/status</code></td>
+              <td>Aktuellen Workspace, Verzeichnis und Claude-Version anzeigen</td>
+            </tr>
+            <tr>
+              <td><code>/help</code></td>
+              <td>Alle verfügbaren Befehle anzeigen</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <!-- EN -->
+    <div data-lang="en">
+      <div class="section-label">Command Reference</div>
+      <h2>All commands</h2>
+      <p class="section-sub">Workspace management, control, and status — all directly in the chat.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Command</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>/ws list</code></td>
+              <td>Show all existing workspaces</td>
+            </tr>
+            <tr>
+              <td><code>/ws &lt;name&gt;</code></td>
+              <td>Switch to a workspace or create a new one</td>
+            </tr>
+            <tr>
+              <td><code>/ws &lt;name&gt; &lt;path&gt;</code></td>
+              <td>Create a new workspace with a specific working directory</td>
+            </tr>
+            <tr>
+              <td><code>/ws delete &lt;name&gt;</code></td>
+              <td>Delete a workspace and its context</td>
+            </tr>
+            <tr>
+              <td><code>/model</code></td>
+              <td>Show current model</td>
+            </tr>
+            <tr>
+              <td><code>/model opus|sonnet|haiku</code></td>
+              <td>Switch model</td>
+            </tr>
+            <tr>
+              <td><code>/clear</code></td>
+              <td>Clear session, start fresh conversation</td>
+            </tr>
+            <tr>
+              <td><code>/compact</code></td>
+              <td>Reset context</td>
+            </tr>
+            <tr>
+              <td><code>/stop</code></td>
+              <td>Cancel the running request</td>
+            </tr>
+            <tr>
+              <td><code>/status</code></td>
+              <td>Show current workspace, directory, and Claude version</td>
+            </tr>
+            <tr>
+              <td><code>/help</code></td>
+              <td>Show all available commands</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </section>
@@ -692,24 +975,68 @@
 <!-- TROUBLESHOOTING -->
 <section id="troubleshooting">
   <div class="container">
-    <div class="section-label">Troubleshooting</div>
-    <h2>Probleme &amp; Lösungen</h2>
-    <p class="section-sub">Die häufigsten Probleme und wie du sie behebst.</p>
+    <!-- DE -->
+    <div data-lang="de">
+      <div class="section-label">Troubleshooting</div>
+      <h2>Probleme &amp; Lösungen</h2>
+      <p class="section-sub">Die häufigsten Probleme und wie du sie behebst.</p>
 
-    <div class="trouble-list">
-      <div class="trouble-item">
-        <h4>Bot antwortet nicht</h4>
-        <p>Prüfe die Log-Datei auf Fehlermeldungen. Dort siehst du, ob der Service läuft und was schiefgelaufen ist.</p>
-        <pre>tail -f ~/Library/Logs/claude-telegram/bot.log</pre>
+      <div class="trouble-list">
+        <div class="trouble-item">
+          <h4>Bot antwortet nicht</h4>
+          <p>Prüfe die Log-Datei auf Fehlermeldungen. Dort siehst du, ob der Service läuft und was schiefgelaufen ist.</p>
+          <pre>tail -f ~/Library/Logs/claude-telegram/bot.log</pre>
+        </div>
+        <div class="trouble-item">
+          <h4>Session abgelaufen</h4>
+          <p>Claude Code Sessions haben eine Lebensdauer. Wenn eine Session abläuft, wird sie automatisch neu gestartet — einfach die letzte Nachricht nochmal senden.</p>
+        </div>
+        <div class="trouble-item">
+          <h4>Timeout bei langen Anfragen</h4>
+          <p>Manche Aufgaben dauern länger als erwartet. Brich die laufende Anfrage ab und versuche es erneut — ggf. mit einer kleineren Teilaufgabe.</p>
+          <pre>/stop</pre>
+        </div>
+        <div class="trouble-item">
+          <h4>claude: No such file or directory</h4>
+          <p>Der Bot findet die Claude CLI nicht. Setze den Pfad explizit in deiner <code>.env</code>-Datei. Du kannst den Pfad mit <code>which claude</code> herausfinden.</p>
+          <pre>CLAUDE_BIN=/path/to/claude</pre>
+        </div>
+        <div class="trouble-item">
+          <h4>afk-mode beta header error</h4>
+          <p>Dieser Fehler tritt auf, wenn experimentelle Beta-Features aktiv sind. Er ist bereits standardmäßig behoben: Die Variable <code>CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1</code> ist in der <code>.env.example</code> voreingestellt und wird beim Setup übernommen.</p>
+        </div>
       </div>
-      <div class="trouble-item">
-        <h4>Session abgelaufen</h4>
-        <p>Claude Code Sessions haben eine Lebensdauer. Wenn eine Session abläuft, wird sie automatisch neu gestartet — einfach die letzte Nachricht nochmal senden.</p>
-      </div>
-      <div class="trouble-item">
-        <h4>Timeout bei langen Anfragen</h4>
-        <p>Manche Aufgaben dauern länger als erwartet. Brich die laufende Anfrage ab und versuche es erneut — ggf. mit einer kleineren Teilaufgabe.</p>
-        <pre>/stop</pre>
+    </div>
+    <!-- EN -->
+    <div data-lang="en">
+      <div class="section-label">Troubleshooting</div>
+      <h2>Problems &amp; Solutions</h2>
+      <p class="section-sub">The most common issues and how to fix them.</p>
+
+      <div class="trouble-list">
+        <div class="trouble-item">
+          <h4>Bot does not respond</h4>
+          <p>Check the log file for error messages. There you can see whether the service is running and what went wrong.</p>
+          <pre>tail -f ~/Library/Logs/claude-telegram/bot.log</pre>
+        </div>
+        <div class="trouble-item">
+          <h4>Session expired</h4>
+          <p>Claude Code sessions have a lifespan. When a session expires, it is automatically restarted — just resend the last message.</p>
+        </div>
+        <div class="trouble-item">
+          <h4>Timeout on long requests</h4>
+          <p>Some tasks take longer than expected. Cancel the running request and try again — perhaps with a smaller subtask.</p>
+          <pre>/stop</pre>
+        </div>
+        <div class="trouble-item">
+          <h4>claude: No such file or directory</h4>
+          <p>The bot cannot find the Claude CLI. Set the path explicitly in your <code>.env</code> file. You can find the path with <code>which claude</code>.</p>
+          <pre>CLAUDE_BIN=/path/to/claude</pre>
+        </div>
+        <div class="trouble-item">
+          <h4>afk-mode beta header error</h4>
+          <p>This error occurs when experimental beta features are active. It is already fixed by default: The variable <code>CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1</code> is preset in <code>.env.example</code> and is applied during setup.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -717,13 +1044,33 @@
 
 <!-- FOOTER -->
 <footer>
-  <p>
+  <p data-lang="de">
     Gebaut mit Claude Code &mdash;
     <a href="https://github.com/hendrikgrueger-web/claude-telegram-remote">GitHub</a>
     &middot;
     MIT License
   </p>
+  <p data-lang="en">
+    Built with Claude Code &mdash;
+    <a href="https://github.com/hendrikgrueger-web/claude-telegram-remote">GitHub</a>
+    &middot;
+    MIT License
+  </p>
 </footer>
+
+<script>
+(function() {
+  var langBtns = document.querySelectorAll('[data-set-lang]');
+  langBtns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var lang = this.getAttribute('data-set-lang');
+      document.documentElement.lang = lang;
+      langBtns.forEach(function(b) { b.classList.remove('active'); });
+      this.classList.add('active');
+    });
+  });
+})();
+</script>
 
 </body>
 </html>

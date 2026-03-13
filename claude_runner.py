@@ -103,9 +103,10 @@ class ClaudeRunner:
         directory: str,
         session_id: Optional[str],
         on_chunk: Callable,
+        model: Optional[str] = None,
     ) -> Optional[str]:
         async with self._lock:
-            cmd = self._build_cmd(prompt, session_id)
+            cmd = self._build_cmd(prompt, session_id, model)
             cwd = str(Path(directory).expanduser())
             try:
                 self._process = await asyncio.create_subprocess_exec(
@@ -164,12 +165,15 @@ class ClaudeRunner:
         return_code = await self._process.wait()
         return new_session_id, "".join(stderr_chunks), return_code
 
-    def _build_cmd(self, prompt: str, session_id: Optional[str]) -> list[str]:
+    def _build_cmd(self, prompt: str, session_id: Optional[str], model: Optional[str] = None) -> list[str]:
         cmd = [
             CLAUDE_BIN, "-p", prompt,
             "--permission-mode", "auto",
             "--output-format", "stream-json",
+            "--verbose",
         ]
+        if model:
+            cmd += ["--model", model]
         if session_id:
             cmd += ["--resume", session_id]
         return cmd

@@ -13,23 +13,46 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo " Claude Telegram Remote — Installation  "
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# 1. Python-Version prüfen
-PYTHON_BIN="$(which python3)"
-PYTHON_VERSION=$("$PYTHON_BIN" -c "import sys; print(sys.version_info.minor)")
-if [ "$PYTHON_VERSION" -lt 10 ]; then
-    echo "❌ Python 3.10+ erforderlich. Installiert: $($PYTHON_BIN --version)"
+# 1. Python 3.10+ finden
+PYTHON_BIN=""
+for candidate in python3.12 python3.11 python3.10 python3; do
+    if command -v "$candidate" &>/dev/null; then
+        ver=$("$candidate" -c "import sys; print(sys.version_info.minor)" 2>/dev/null || echo "0")
+        if [ "$ver" -ge 10 ]; then
+            PYTHON_BIN="$(command -v "$candidate")"
+            break
+        fi
+    fi
+done
+
+if [ -z "$PYTHON_BIN" ]; then
+    echo "❌ Python 3.10+ erforderlich. Installiere z.B.: brew install python@3.12"
     exit 1
 fi
 echo "✅ $($PYTHON_BIN --version) unter $PYTHON_BIN"
 
-# 2. start.sh mit absolutem Python-Pfad patchen
-sed -i '' "s|PYTHON_BIN|$PYTHON_BIN|g" "$INSTALL_DIR/start.sh"
-echo "✅ start.sh mit Python-Pfad konfiguriert"
+# 2. Virtualenv erstellen und Dependencies installieren
+echo "📦 Erstelle Virtualenv und installiere Dependencies..."
+"$PYTHON_BIN" -m venv "$INSTALL_DIR/.venv"
+"$INSTALL_DIR/.venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt" --quiet
+echo "✅ Dependencies in .venv installiert"
 
-# 3. Dependencies installieren
-echo "📦 Installiere Dependencies..."
-"$PYTHON_BIN" -m pip install -r "$INSTALL_DIR/requirements.txt" --quiet
-echo "✅ Dependencies installiert"
+# 3. Claude CLI finden
+CLAUDE_PATH="$(command -v claude 2>/dev/null || echo "")"
+if [ -z "$CLAUDE_PATH" ]; then
+    # Typische Installationspfade durchsuchen
+    for p in "$HOME/.local/bin/claude" "/usr/local/bin/claude" "$HOME/.npm-global/bin/claude"; do
+        if [ -x "$p" ]; then
+            CLAUDE_PATH="$p"
+            break
+        fi
+    done
+fi
+if [ -z "$CLAUDE_PATH" ]; then
+    echo "⚠️  Claude CLI nicht gefunden. Bitte CLAUDE_BIN in .env manuell setzen."
+else
+    echo "✅ Claude CLI: $CLAUDE_PATH"
+fi
 
 # 4. .env einrichten
 if [ ! -f "$INSTALL_DIR/.env" ]; then
@@ -45,6 +68,11 @@ if [ ! -f "$INSTALL_DIR/.env" ]; then
     sed -i '' "s|your_token_here|$BOT_TOKEN|" "$INSTALL_DIR/.env"
     sed -i '' "s|123456789|$USER_ID|" "$INSTALL_DIR/.env"
     sed -i '' "s|~/Coding|$WORK_DIR|" "$INSTALL_DIR/.env"
+
+    # Claude-Pfad automatisch eintragen
+    if [ -n "$CLAUDE_PATH" ]; then
+        sed -i '' "s|# CLAUDE_BIN=|CLAUDE_BIN=$CLAUDE_PATH|" "$INSTALL_DIR/.env"
+    fi
     echo "✅ .env konfiguriert"
 else
     echo "✅ .env bereits vorhanden"
@@ -84,19 +112,17 @@ fi
 launchctl load "$PLIST_DEST"
 echo "✅ Service gestartet"
 
-# 9. Auto-Login Hinweis
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo " ⚠️  WICHTIG: Auto-Login aktivieren!     "
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo " Der Bot startet nur nach User-Login."
-echo " Für 24/7-Betrieb bitte aktivieren:"
-echo " Systemeinstellungen → Allgemein → Autom. Anmelden"
+# 9. Hinweis
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo " ✅ Installation abgeschlossen!           "
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo " Logs: tail -f $LOGS_DIR/bot.log"
-echo " Stop: launchctl unload $PLIST_DEST"
-echo " Start: launchctl load $PLIST_DEST"
+echo ""
+echo " Der Bot startet nach User-Login automatisch."
+echo " Nach macOS-Neustart einmal einloggen."
+echo ""
+echo " Logs:    tail -f $LOGS_DIR/error.log"
+echo " Stop:    launchctl unload $PLIST_DEST"
+echo " Start:   launchctl load $PLIST_DEST"
+echo " Neustart: launchctl kickstart -k gui/\$(id -u)/$PLIST_NAME"
 echo ""
