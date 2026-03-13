@@ -6,35 +6,11 @@ Kompakte Status-Nachricht mit live Updates: Thinking-Summary, Tool-Call-Einzeile
 import time
 from typing import Callable, Optional
 
-# TODO: Bei Integration durch Import ersetzen: from claude_runner import RunEvent, EventType, split_for_telegram
-from dataclasses import dataclass, field
-from enum import Enum
-
-
-class EventType(Enum):
-    THINKING = "thinking"
-    TEXT = "text"
-    TOOL_USE = "tool_use"
-    TOOL_RESULT = "tool_result"
-    RESULT = "result"
-
-
-@dataclass
-class RunEvent:
-    type: EventType
-    content: str = ""
-    tool_name: str = ""
-    tool_input: dict = field(default_factory=dict)
-    tool_call_id: str = ""
-    is_error: bool = False
-    session_id: str = ""
-    usage: dict = field(default_factory=dict)
-
+from claude_runner import RunEvent, EventType, split_for_telegram
 
 EDIT_INTERVAL = 1.5
 MAX_THINKING_PREVIEW = 100
 MAX_TOOL_INPUT_PREVIEW = 60
-MAX_MSG_LEN = 4096
 
 TOOL_ICONS = {
     "Read": "📖",
@@ -47,24 +23,6 @@ TOOL_ICONS = {
     "WebSearch": "🌐",
     "WebFetch": "🌐",
 }
-
-
-def split_for_telegram(text: str, max_len: int = MAX_MSG_LEN) -> list[str]:
-    """Teilt Text in Chunks <= max_len, bevorzugt am letzten Newline."""
-    if len(text) <= max_len:
-        return [text]
-    chunks = []
-    while len(text) > max_len:
-        split_at = text.rfind("\n", 0, max_len)
-        if split_at <= 0:
-            split_at = max_len
-        else:
-            split_at += 1
-        chunks.append(text[:split_at])
-        text = text[split_at:]
-    if text:
-        chunks.append(text)
-    return chunks
 
 
 class EventFormatter:

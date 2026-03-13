@@ -5,23 +5,27 @@ Entry Point, TelegramHandler, Command-Handler.
 
 import asyncio
 import functools
+import json
 import logging
 import os
 import subprocess
 from pathlib import Path
 
 from dotenv import load_dotenv
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
     filters,
 )
 
-from claude_runner import ClaudeRunner, OutputStreamer, SessionExpiredError, last_usage, session_usage, CLAUDE_BIN
+from claude_runner import ClaudeRunner, EventType, RunEvent, SessionExpiredError, last_usage, session_usage, CLAUDE_BIN
+from event_formatter import EventFormatter
+from permission_server import PermissionServer, ToolCategory
 from workspace import WorkspaceManager
 
 load_dotenv()
@@ -32,6 +36,7 @@ TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 ALLOWED_USER_ID = int(os.environ["ALLOWED_USER_ID"])
 DEFAULT_DIR = os.getenv("DEFAULT_WORKSPACE_DIR", "~/Coding")
 MAX_MESSAGE_LEN = 4000
+PERMISSION_PORT = int(os.getenv("PERMISSION_SERVER_PORT", "7429"))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,6 +48,49 @@ logger = logging.getLogger(__name__)
 
 ws_manager = WorkspaceManager(default_dir=DEFAULT_DIR)
 runner = ClaudeRunner()
+perm_server = PermissionServer(port=PERMISSION_PORT)
+
+# Wird in main() mit app.bot verbunden
+_bot_instance = None
+
+
+# ── Permission-Callback ───────────────────────────────────────────────────────
+
+async def on_permission_request(req):
+    """Wird vom PermissionServer aufgerufen — zeigt Telegram Inline-Keyboard."""
+    if not _bot_instance:
+        req.decision = "allow"
+        req.event.set()
+        return
+
+    icon = "🛑" if req.category == ToolCategory.DESTRUCTIVE else "⚠️"
+    timeout_info = ""
+    if req.category == ToolCategory.MODIFYING:
+        timeout_info = "\n⏱ _Auto-accept in 60s_"
+    elif req.category == ToolCategory.DESTRUCTIVE:
+        timeout_info = "\n🛑 _Wartet auf deine Entscheidung_"
+
+    detail = json.dumps(req.tool_input, indent=2, ensure_ascii=False)
+    if len(detail) > 500:
+        detail = detail[:500] + "..."
+
+    text = (
+        f"{icon} *Permission: {req.tool_name}*\n"
+        f"```\n{detail}\n```"
+        f"{timeout_info}"
+    )
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Erlauben", callback_data=f"perm:allow:{req.request_id}"),
+        InlineKeyboardButton("❌ Blockieren", callback_data=f"perm:block:{req.request_id}"),
+    ]])
+
+    await _bot_instance.send_message(
+        chat_id=ALLOWED_USER_ID,
+        text=text,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=keyboard,
+    )
 
 
 # ── Auth-Decorator ────────────────────────────────────────────────────────────
@@ -82,6 +130,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/usage` — Token-Verbrauch anzeigen\n"
         "`/skills` — Installierte Skills auflisten\n"
         "`/rename <name>` — Workspace umbenennen\n\n"
+        "*Permissions:*\n"
+        "Claude fragt bei Write/Edit/Bash um Erlaubnis via Button.\n"
+        "Harmlose Tools (Read/Grep) laufen automatisch.\n\n"
         "*System-Befehle:*\n"
         "`/stop` — Laufende Anfrage abbrechen\n"
         "`/status` — Aktueller Workspace und Verzeichnis\n"
@@ -297,6 +348,36 @@ async def cmd_skills(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# ── Permission-Button Handler ─────────────────────────────────────────────────
+
+async def handle_permission_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Verarbeitet Permission-Button Clicks."""
+    query = update.callback_query
+    if not query or not query.data:
+        return
+    if update.effective_user and update.effective_user.id != ALLOWED_USER_ID:
+        await query.answer("Nicht autorisiert.")
+        return
+
+    await query.answer()
+
+    parts = query.data.split(":", 2)
+    if len(parts) != 3 or parts[0] != "perm":
+        return
+
+    action = parts[1]      # "allow" oder "block"
+    request_id = parts[2]  # "perm_N"
+
+    decision = "allow" if action == "allow" else "block"
+    resolved = perm_server.resolve(request_id, decision)
+
+    if resolved:
+        emoji = "✅ Erlaubt" if decision == "allow" else "❌ Blockiert"
+        await query.edit_message_text(emoji)
+    else:
+        await query.edit_message_text("⚠️ Request bereits beantwortet")
+
+
 # ── Nachrichten-Handler (→ Claude) ───────────────────────────────────────────
 
 @authorized_only
@@ -316,10 +397,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ws_manager.get_plan_mode():
         text = f"Erstelle einen detaillierten Plan fuer folgende Aufgabe. Implementiere NICHTS, plane nur:\n\n{text}"
 
-    status_msg = await update.message.reply_text(
-        "🤔 _Claude denkt nach..._", parse_mode=ParseMode.MARKDOWN
-    )
-
     async def send_fn(content: str):
         return await update.message.reply_text(content)
 
@@ -329,18 +406,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-    streamer = OutputStreamer(send_fn=send_fn, edit_fn=edit_fn)
-    streamer._current_msg = status_msg
+    formatter = EventFormatter(send_fn=send_fn, edit_fn=edit_fn)
 
     try:
         new_session_id = await runner.run(
             prompt=text,
             directory=ws["directory"],
             session_id=session_id,
-            on_chunk=streamer.append,
+            on_event=formatter.handle_event,
             model=ws_manager.get_model(),
         )
-        await streamer.finalize()
+        await formatter.finalize()
 
         if new_session_id:
             ws_manager.set_session_id(new_session_id)
@@ -363,8 +439,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Entry Point ───────────────────────────────────────────────────────────────
 
 def main():
-    app = Application.builder().token(TOKEN).build()
+    global _bot_instance
 
+    app = Application.builder().token(TOKEN).build()
+    _bot_instance = app.bot
+
+    # Permission-Server Callback setzen
+    perm_server._on_permission_request = on_permission_request
+
+    # Commands
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("start", cmd_help))
     app.add_handler(CommandHandler("status", cmd_status))
@@ -377,10 +460,25 @@ def main():
     app.add_handler(CommandHandler("rename", cmd_rename))
     app.add_handler(CommandHandler("usage", cmd_usage))
     app.add_handler(CommandHandler("skills", cmd_skills))
+
+    # Permission-Buttons (VOR dem Message Handler!)
+    app.add_handler(CallbackQueryHandler(handle_permission_callback))
+
+    # Messages
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+    # Permission-Server lifecycle
+    async def post_init(application):
+        await perm_server.start()
+
+    async def post_shutdown(application):
+        await perm_server.stop()
+
+    app.post_init = post_init
+    app.post_shutdown = post_shutdown
+
     logger.info("Bot gestartet. Workspace: %s", ws_manager.get_active_name())
-    app.run_polling(allowed_updates=["message"])
+    app.run_polling(allowed_updates=["message", "callback_query"])
 
 
 if __name__ == "__main__":
