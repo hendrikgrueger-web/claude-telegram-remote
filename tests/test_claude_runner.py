@@ -1,7 +1,9 @@
 # tests/test_claude_runner.py
-"""Tests für split_for_telegram und OutputStreamer."""
+"""Tests für split_for_telegram, OutputStreamer und RunEvent/EventType."""
+import asyncio
+import json
 import pytest
-from claude_runner import split_for_telegram, OutputStreamer
+from claude_runner import split_for_telegram, OutputStreamer, RunEvent, EventType
 
 
 # ── split_for_telegram ────────────────────────────────────────────────────────
@@ -86,3 +88,89 @@ async def test_streamer_no_empty_send(streamer_state):
     await streamer.append("")
     await streamer.finalize()
     assert len(sent) == 0
+
+
+# ── RunEvent / _parse_line ────────────────────────────────────────────────────
+
+async def parse_lines(lines: list[str]) -> list[RunEvent]:
+    """Parst stream-json Lines ueber ClaudeRunner._parse_line()."""
+    from claude_runner import ClaudeRunner
+    events = []
+    runner = ClaudeRunner()
+    for line in lines:
+        parsed = runner._parse_line(line)
+        if parsed:
+            events.extend(parsed)
+    return events
+
+
+def test_parse_thinking_block():
+    line = json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "thinking", "thinking": "Ich ueberlege mir die Struktur..."}
+    ]}})
+    events = asyncio.get_event_loop().run_until_complete(parse_lines([line]))
+    assert len(events) == 1
+    assert events[0].type == EventType.THINKING
+    assert "ueberlege" in events[0].content
+
+
+def test_parse_text_block():
+    line = json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "Hier ist die Antwort."}
+    ]}})
+    events = asyncio.get_event_loop().run_until_complete(parse_lines([line]))
+    assert len(events) == 1
+    assert events[0].type == EventType.TEXT
+    assert events[0].content == "Hier ist die Antwort."
+
+
+def test_parse_tool_use_block():
+    line = json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "toolu_123", "name": "Read",
+         "input": {"file_path": "/tmp/test.py"}}
+    ]}})
+    events = asyncio.get_event_loop().run_until_complete(parse_lines([line]))
+    assert len(events) == 1
+    assert events[0].type == EventType.TOOL_USE
+    assert events[0].tool_name == "Read"
+    assert events[0].tool_input["file_path"] == "/tmp/test.py"
+    assert events[0].tool_call_id == "toolu_123"
+
+
+def test_parse_tool_result_block():
+    line = json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "toolu_123",
+         "content": "file contents here", "is_error": False}
+    ]}})
+    events = asyncio.get_event_loop().run_until_complete(parse_lines([line]))
+    assert len(events) == 1
+    assert events[0].type == EventType.TOOL_RESULT
+    assert events[0].tool_call_id == "toolu_123"
+
+
+def test_parse_result_event():
+    line = json.dumps({"type": "result", "session_id": "sess_abc",
+                       "usage": {"input_tokens": 100, "output_tokens": 50}})
+    events = asyncio.get_event_loop().run_until_complete(parse_lines([line]))
+    assert len(events) == 1
+    assert events[0].type == EventType.RESULT
+    assert events[0].session_id == "sess_abc"
+
+
+def test_parse_mixed_blocks():
+    """Ein assistant-Event mit mehreren Blocks erzeugt mehrere RunEvents."""
+    line = json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "thinking", "thinking": "Denke nach..."},
+        {"type": "text", "text": "Antwort"},
+        {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}},
+    ]}})
+    events = asyncio.get_event_loop().run_until_complete(parse_lines([line]))
+    assert len(events) == 3
+    assert [e.type for e in events] == [EventType.THINKING, EventType.TEXT, EventType.TOOL_USE]
+
+
+def test_parse_invalid_json():
+    """Nicht-JSON Lines werden als TEXT Events behandelt."""
+    events = asyncio.get_event_loop().run_until_complete(parse_lines(["not json"]))
+    assert len(events) == 1
+    assert events[0].type == EventType.TEXT
