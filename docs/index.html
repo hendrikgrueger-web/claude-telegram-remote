@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude Remote Control via Telegram</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0f14;
+      --surface:   #13161e;
+      --surface2:  #1a1e2a;
+      --border:    #252a38;
+      --accent:    #00d4ff;
+      --accent2:   #7b6fff;
+      --text:      #e8eaf0;
+      --muted:     #7a8299;
+      --code-bg:   #0a0c11;
+      --success:   #00e5a0;
+      --radius:    12px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      font-size: 16px;
+    }
+
+    /* ── NAV ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(13, 15, 20, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+    }
+    .nav-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+    }
+    .nav-logo {
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--accent);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .nav-logo svg { width: 20px; height: 20px; }
+    .nav-links {
+      display: flex;
+      gap: 1.5rem;
+      list-style: none;
+    }
+    .nav-links a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--text); }
+    @media (max-width: 640px) { .nav-links { display: none; } }
+
+    /* ── HERO ── */
+    .hero {
+      padding: 7rem 2rem 5rem;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(0, 212, 255, 0.12) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 40% at 80% 80%, rgba(123, 111, 255, 0.08) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(0, 212, 255, 0.08);
+      border: 1px solid rgba(0, 212, 255, 0.25);
+      border-radius: 999px;
+      padding: 0.3rem 0.9rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--accent);
+      margin-bottom: 1.75rem;
+      letter-spacing: 0.02em;
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      font-weight: 700;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      max-width: 780px;
+      margin: 0 auto 1.25rem;
+    }
+    .hero h1 span {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p {
+      font-size: 1.15rem;
+      color: var(--muted);
+      max-width: 560px;
+      margin: 0 auto 2.5rem;
+    }
+    .hero-actions {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.7rem 1.5rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+      cursor: pointer;
+      border: none;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent) 0%, #00a8cc 100%);
+      color: #000;
+    }
+    .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { background: var(--surface2); }
+
+    /* ── TERMINAL PREVIEW ── */
+    .terminal {
+      max-width: 720px;
+      margin: 4rem auto 0;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.03);
+    }
+    .terminal-bar {
+      background: var(--surface2);
+      padding: 0.7rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dot-red    { background: #ff5f57; }
+    .dot-yellow { background: #febc2e; }
+    .dot-green  { background: #28c840; }
+    .terminal-title {
+      margin-left: auto;
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .terminal-body {
+      padding: 1.25rem 1.5rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      line-height: 1.8;
+    }
+    .t-prompt { color: var(--accent); }
+    .t-cmd    { color: var(--text); }
+    .t-out    { color: var(--muted); }
+    .t-ok     { color: var(--success); }
+    .t-hl     { color: var(--accent2); }
+
+    /* ── SECTIONS ── */
+    section { padding: 5rem 2rem; }
+    section + section { border-top: 1px solid var(--border); }
+    .container { max-width: 1100px; margin: 0 auto; }
+
+    .section-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+    }
+    h2 {
+      font-size: clamp(1.6rem, 3vw, 2.2rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.75rem;
+    }
+    .section-sub {
+      color: var(--muted);
+      font-size: 1.05rem;
+      margin-bottom: 3rem;
+      max-width: 560px;
+    }
+
+    /* ── FEATURES ── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1.25rem;
+    }
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .feature-card:hover {
+      border-color: rgba(0, 212, 255, 0.3);
+      transform: translateY(-2px);
+    }
+    .feature-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: rgba(0, 212, 255, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+      font-size: 1.3rem;
+    }
+    .feature-card h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+    }
+    .feature-card p {
+      font-size: 0.875rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    /* ── PREREQUISITES ── */
+    .prereq-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .prereq-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.1rem 1.4rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+    }
+    .prereq-num {
+      background: rgba(0, 212, 255, 0.1);
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 0.8rem;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .prereq-text strong { font-weight: 600; display: block; margin-bottom: 0.15rem; }
+    .prereq-text span  { font-size: 0.875rem; color: var(--muted); }
+
+    /* ── INSTALLATION ── */
+    .steps { display: flex; flex-direction: column; gap: 1.5rem; }
+    .step {
+      display: flex;
+      gap: 1.25rem;
+      align-items: flex-start;
+    }
+    .step-num {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+      color: #000;
+      font-weight: 700;
+      font-size: 0.85rem;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .step-body { flex: 1; }
+    .step-body p { font-size: 0.95rem; margin-bottom: 0.6rem; color: var(--text); }
+    .step-body .note { font-size: 0.82rem; color: var(--muted); margin-top: 0.35rem; }
+    code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85em;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.15em 0.45em;
+      color: var(--accent);
+    }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.83rem;
+      overflow-x: auto;
+      line-height: 1.7;
+      color: var(--accent);
+      margin-top: 0.5rem;
+    }
+
+    /* ── COMMANDS TABLE ── */
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    thead {
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      padding: 0.85rem 1.25rem;
+      text-align: left;
+      font-weight: 600;
+      font-size: 0.8rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    td {
+      padding: 0.85rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.015); }
+    td:first-child code {
+      font-size: 0.85rem;
+      font-weight: 500;
+      background: rgba(0, 212, 255, 0.07);
+      border-color: rgba(0, 212, 255, 0.2);
+    }
+    td:last-child { color: var(--muted); font-size: 0.875rem; }
+
+    /* ── TROUBLESHOOTING ── */
+    .trouble-list { display: flex; flex-direction: column; gap: 1rem; }
+    .trouble-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.4rem;
+    }
+    .trouble-item h4 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .trouble-item h4::before {
+      content: '!';
+      background: rgba(255, 190, 50, 0.12);
+      color: #febc2e;
+      font-weight: 700;
+      font-size: 0.75rem;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .trouble-item p { font-size: 0.875rem; color: var(--muted); }
+    .trouble-item pre { margin-top: 0.65rem; font-size: 0.78rem; }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2.5rem 2rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* ── UTILITY ── */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3rem;
+      align-items: start;
+    }
+    @media (max-width: 768px) {
+      .two-col { grid-template-columns: 1fr; }
+      section { padding: 3.5rem 1.25rem; }
+      .hero { padding: 5rem 1.25rem 3rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="4 17 10 11 4 5"/>
+        <line x1="12" y1="19" x2="20" y2="19"/>
+      </svg>
+      Claude Telegram Remote
+    </a>
+    <ul class="nav-links">
+      <li><a href="#features">Features</a></li>
+      <li><a href="#installation">Installation</a></li>
+      <li><a href="#commands">Befehle</a></li>
+      <li><a href="#troubleshooting">Hilfe</a></li>
+      <li><a href="https://github.com/hendrikgrueger-web/claude-telegram-remote">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-badge">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="12" cy="12" r="10"/>
+    </svg>
+    Open Source · MIT License
+  </div>
+  <h1>Claude Remote Control<br /><span>via Telegram</span></h1>
+  <p>Vollständiger Terminal-Zugriff auf deinen Mac mini — direkt aus Telegram. Überall. Jederzeit.</p>
+  <div class="hero-actions">
+    <a class="btn btn-primary" href="#installation">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
+        <path d="M20 21H4a2 2 0 0 1-2-2v-1a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2z"/>
+      </svg>
+      Installation starten
+    </a>
+    <a class="btn btn-ghost" href="https://github.com/hendrikgrueger-web/claude-telegram-remote">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+      </svg>
+      GitHub
+    </a>
+  </div>
+
+  <!-- Terminal preview -->
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="dot dot-red"></div>
+      <div class="dot dot-yellow"></div>
+      <div class="dot dot-green"></div>
+      <span class="terminal-title">Telegram → Mac mini</span>
+    </div>
+    <div class="terminal-body">
+      <div><span class="t-prompt">you@telegram  →</span> <span class="t-cmd">Erstelle eine React-Komponente für einen Button</span></div>
+      <div><span class="t-out">                 Workspace: main  |  /Users/hendrik/projects</span></div>
+      <div>&nbsp;</div>
+      <div><span class="t-hl">claude-bot</span><span class="t-out">  Ich erstelle die Komponente...</span></div>
+      <div><span class="t-out">             ▸ Creating</span> <span class="t-cmd">src/components/Button.tsx</span></div>
+      <div><span class="t-out">             ▸ Writing 47 lines</span></div>
+      <div><span class="t-ok">             ✓ Fertig! Button.tsx wurde erstellt.</span></div>
+      <div>&nbsp;</div>
+      <div><span class="t-prompt">you@telegram  →</span> <span class="t-cmd">/ws list</span></div>
+      <div><span class="t-hl">claude-bot</span><span class="t-out">  Workspaces: [main] projects  server</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="container">
+    <div class="section-label">Features</div>
+    <h2>Alles was du brauchst</h2>
+    <p class="section-sub">Vollständige Claude Code Power — ferngesteuert über den Telegram-Messenger deines Vertrauens.</p>
+
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F4BB;</div>
+        <h3>Terminal-Zugriff von überall</h3>
+        <p>Sende beliebige Befehle an deinen Mac — direkt aus dem Telegram-Chat. Kein VPN, kein SSH-Client nötig.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F5C2;</div>
+        <h3>Mehrere Workspaces</h3>
+        <p>Arbeite gleichzeitig an verschiedenen Projekten. Workspaces funktionieren wie Terminal-Tabs — jeder mit eigenem Verzeichnis und Kontext.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F4BE;</div>
+        <h3>Session-Persistenz</h3>
+        <p>Der Gesprächskontext bleibt erhalten. Claude erinnert sich an vorherige Nachrichten im selben Workspace.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x26A1;</div>
+        <h3>24/7 launchd-Service</h3>
+        <p>Startet automatisch beim Systemstart via macOS launchd. Kein manuelles Starten, kein Überwachen nötig.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x1F4E1;</div>
+        <h3>Live Streaming-Output</h3>
+        <p>Ausgaben werden in Echtzeit gestreamt — du siehst, was Claude gerade tut, ohne auf das Ende zu warten.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#x2728;</div>
+        <h3>Volle Claude Code Power</h3>
+        <p>Alle Tools, MCPs und Skills stehen zur Verfügung — genau wie in der lokalen Claude Code CLI.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PREREQUISITES -->
+<section id="prerequisites">
+  <div class="container">
+    <div class="section-label">Voraussetzungen</div>
+    <h2>Was du brauchst</h2>
+    <p class="section-sub">Vier Dinge — dann bist du startklar.</p>
+
+    <div class="prereq-list">
+      <div class="prereq-item">
+        <div class="prereq-num">1</div>
+        <div class="prereq-text">
+          <strong>Mac mit macOS</strong>
+          <span>Läuft am besten als 24/7-Maschine (Mac mini, MacBook im Clamshell-Modus). macOS 13 Ventura oder neuer empfohlen.</span>
+        </div>
+      </div>
+      <div class="prereq-item">
+        <div class="prereq-num">2</div>
+        <div class="prereq-text">
+          <strong>Python 3.10+</strong>
+          <span>Vorinstalliert auf den meisten modernen Macs. Check: <code>python3 --version</code></span>
+        </div>
+      </div>
+      <div class="prereq-item">
+        <div class="prereq-num">3</div>
+        <div class="prereq-text">
+          <strong>Claude Code CLI</strong>
+          <span>Installiere mit: <code>npm install -g @anthropic-ai/claude-code</code>. Benötigt Node.js 18+ und einen Anthropic API Key.</span>
+        </div>
+      </div>
+      <div class="prereq-item">
+        <div class="prereq-num">4</div>
+        <div class="prereq-text">
+          <strong>Telegram-Account &amp; Bot-Token</strong>
+          <span>Erstelle einen Bot via <code>@BotFather</code> in Telegram und notiere den API-Token. Außerdem deine numerische User-ID (z.B. via <code>@userinfobot</code>).</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- INSTALLATION -->
+<section id="installation">
+  <div class="container">
+    <div class="section-label">Installation</div>
+    <h2>In 5 Schritten startklar</h2>
+    <p class="section-sub">Das Setup-Script erledigt den Rest automatisch.</p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <p><strong>Repository klonen</strong></p>
+          <pre>git clone https://github.com/hendrikgrueger-web/claude-telegram-remote.git</pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <p><strong>In das Verzeichnis wechseln</strong></p>
+          <pre>cd claude-telegram-remote</pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <p><strong>Setup starten</strong></p>
+          <pre>bash install.sh</pre>
+          <div class="note">Das Script installiert alle Abhängigkeiten, richtet den launchd-Service ein und konfiguriert den Bot.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <p><strong>Bot-Token &amp; User-ID eingeben</strong></p>
+          <p style="color: var(--muted); font-size: 0.875rem;">Das Setup-Script fragt interaktiv nach deinem Telegram Bot-Token (von @BotFather) und deiner numerischen Telegram User-ID. Diese werden sicher in der lokalen Konfiguration gespeichert.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <p><strong>Auto-Login aktivieren</strong> <span style="color: var(--muted); font-size: 0.85rem;">(für 24/7-Betrieb)</span></p>
+          <p style="color: var(--muted); font-size: 0.875rem;">Damit der Bot nach einem Neustart automatisch startet, muss Auto-Login aktiviert sein:</p>
+          <p style="font-size: 0.875rem; margin-top: 0.5rem;">Systemeinstellungen &rarr; Allgemein &rarr; <strong>Automatisch anmelden</strong> aktivieren</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- COMMANDS -->
+<section id="commands">
+  <div class="container">
+    <div class="section-label">Befehlsreferenz</div>
+    <h2>Alle Befehle</h2>
+    <p class="section-sub">Workspace-Management, Steuerung und Status — alles direkt im Chat.</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Befehl</th>
+            <th>Beschreibung</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>/ws list</code></td>
+            <td>Alle vorhandenen Workspaces anzeigen</td>
+          </tr>
+          <tr>
+            <td><code>/ws &lt;name&gt;</code></td>
+            <td>Zu einem Workspace wechseln oder einen neuen anlegen</td>
+          </tr>
+          <tr>
+            <td><code>/ws &lt;name&gt; &lt;pfad&gt;</code></td>
+            <td>Neuen Workspace mit einem bestimmten Arbeitsverzeichnis anlegen</td>
+          </tr>
+          <tr>
+            <td><code>/ws delete &lt;name&gt;</code></td>
+            <td>Einen Workspace und seinen Kontext löschen</td>
+          </tr>
+          <tr>
+            <td><code>/stop</code></td>
+            <td>Laufende Anfrage abbrechen</td>
+          </tr>
+          <tr>
+            <td><code>/status</code></td>
+            <td>Aktuellen Workspace, Verzeichnis und Claude-Version anzeigen</td>
+          </tr>
+          <tr>
+            <td><code>/help</code></td>
+            <td>Alle verfügbaren Befehle anzeigen</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- TROUBLESHOOTING -->
+<section id="troubleshooting">
+  <div class="container">
+    <div class="section-label">Troubleshooting</div>
+    <h2>Probleme &amp; Lösungen</h2>
+    <p class="section-sub">Die häufigsten Probleme und wie du sie behebst.</p>
+
+    <div class="trouble-list">
+      <div class="trouble-item">
+        <h4>Bot antwortet nicht</h4>
+        <p>Prüfe die Log-Datei auf Fehlermeldungen. Dort siehst du, ob der Service läuft und was schiefgelaufen ist.</p>
+        <pre>tail -f ~/Library/Logs/claude-telegram/bot.log</pre>
+      </div>
+      <div class="trouble-item">
+        <h4>Session abgelaufen</h4>
+        <p>Claude Code Sessions haben eine Lebensdauer. Wenn eine Session abläuft, wird sie automatisch neu gestartet — einfach die letzte Nachricht nochmal senden.</p>
+      </div>
+      <div class="trouble-item">
+        <h4>Timeout bei langen Anfragen</h4>
+        <p>Manche Aufgaben dauern länger als erwartet. Brich die laufende Anfrage ab und versuche es erneut — ggf. mit einer kleineren Teilaufgabe.</p>
+        <pre>/stop</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <p>
+    Gebaut mit Claude Code &mdash;
+    <a href="https://github.com/hendrikgrueger-web/claude-telegram-remote">GitHub</a>
+    &middot;
+    MIT License
+  </p>
+</footer>
+
+</body>
+</html>
