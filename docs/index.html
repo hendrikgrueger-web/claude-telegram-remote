@@ -209,10 +209,8 @@
     }
     .lang-btn:hover:not(.active) { color: var(--text-s); }
 
-    /* Language visibility */
+    /* Language visibility — switching handled by JS */
     [data-lang="en"] { display: none; }
-    html[lang="en"] [data-lang="de"] { display: none; }
-    html[lang="en"] [data-lang="en"] { display: revert; }
 
     /* ── HERO ── */
     .hero {
@@ -1664,21 +1662,49 @@
 
 <script>
 (function() {
-  // Language switcher
-  var langBtns = document.querySelectorAll('[data-set-lang]');
-  langBtns.forEach(function(btn) {
+  var currentLang = 'de';
+
+  function tagDisplay(el) {
+    var t = el.tagName.toLowerCase();
+    if (t === 'span') return 'inline';
+    if (t === 'a') return el.classList.contains('btn') ? 'inline-flex' : 'inline';
+    return 'block';
+  }
+
+  function switchLang(lang) {
+    if (lang === currentLang) return;
+    currentLang = lang;
+    document.documentElement.lang = lang;
+    var other = lang === 'de' ? 'en' : 'de';
+
+    document.querySelectorAll('[data-lang="' + other + '"]').forEach(function(el) {
+      el.style.display = 'none';
+    });
+    document.querySelectorAll('[data-lang="' + lang + '"]').forEach(function(el) {
+      el.style.display = tagDisplay(el);
+      // Force-show reveal/stagger elements that were hidden during page load
+      if (el.classList.contains('reveal') || el.classList.contains('stagger')) {
+        el.classList.add('visible');
+      }
+    });
+    document.querySelectorAll('[data-set-lang]').forEach(function(b) {
+      b.classList.toggle('active', b.getAttribute('data-set-lang') === lang);
+    });
+  }
+
+  // Init: enforce inline display:none on all EN elements (belt+suspenders vs CSS)
+  document.querySelectorAll('[data-lang="en"]').forEach(function(el) {
+    el.style.display = 'none';
+  });
+
+  document.querySelectorAll('[data-set-lang]').forEach(function(btn) {
     btn.addEventListener('click', function() {
-      var lang = this.getAttribute('data-set-lang');
-      document.documentElement.lang = lang;
-      langBtns.forEach(function(b) { b.classList.remove('active'); });
-      document.querySelectorAll('[data-set-lang="' + lang + '"]').forEach(function(b) {
-        b.classList.add('active');
-      });
+      switchLang(this.getAttribute('data-set-lang'));
     });
   });
 
-  // Scroll reveal with IntersectionObserver
-  var reveals = document.querySelectorAll('.reveal, .stagger');
+  // Scroll reveals
+  var allReveal = document.querySelectorAll('.reveal, .stagger');
   if ('IntersectionObserver' in window) {
     var obs = new IntersectionObserver(function(entries) {
       entries.forEach(function(e) {
@@ -1688,9 +1714,9 @@
         }
       });
     }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
-    reveals.forEach(function(el) { obs.observe(el); });
+    allReveal.forEach(function(el) { obs.observe(el); });
   } else {
-    reveals.forEach(function(el) { el.classList.add('visible'); });
+    allReveal.forEach(function(el) { el.classList.add('visible'); });
   }
 })();
 </script>
