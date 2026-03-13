@@ -575,6 +575,56 @@
       margin-top: 0.5rem;
     }
 
+    /* ── ANYWHERE SECTION ── */
+    .anywhere-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5rem;
+    }
+    @media (max-width: 768px) {
+      .anywhere-grid { grid-template-columns: 1fr; gap: 1rem; }
+    }
+    .anywhere-card {
+      border-radius: 20px;
+      overflow: hidden;
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s;
+    }
+    .anywhere-card:hover {
+      transform: translateY(-6px) scale(1.01);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+    }
+    .anywhere-card img {
+      width: 100%;
+      aspect-ratio: 1;
+      object-fit: cover;
+      display: block;
+    }
+    .anywhere-caption {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 1.5rem 1.25rem 1.25rem;
+      background: linear-gradient(to top, rgba(9,11,17,0.95) 0%, transparent 100%);
+      display: flex;
+      align-items: flex-end;
+      gap: 0.6rem;
+    }
+    .anywhere-caption .caption-icon {
+      font-size: 1.3rem;
+      line-height: 1;
+    }
+    .anywhere-caption span {
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+
     /* ── COMMANDS TABLE ── */
     .cmd-section-grid {
       display: grid;
@@ -972,6 +1022,44 @@
         <div>&nbsp;</div>
         <div><span class="t-prompt">you@telegram &rarr;</span> <span class="t-cmd">/model opus</span></div>
         <div><span class="t-hl">claude</span> <span class="t-out">Model set to opus (claude-opus-4-6).</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ANYWHERE -->
+<section id="anywhere" style="padding: 4rem 2rem;">
+  <div class="container">
+    <div class="reveal" style="text-align:center; margin-bottom: 2.5rem;">
+      <div class="section-label" data-lang="de">Überall dabei</div>
+      <div class="section-label" data-lang="en">Code from anywhere</div>
+      <h2 data-lang="de">Programmieren — wann und wo du willst</h2>
+      <h2 data-lang="en">Code — whenever and wherever you want</h2>
+    </div>
+    <div class="anywhere-grid stagger">
+      <div class="anywhere-card">
+        <img src="nerd-sport.png" alt="Coding while running" loading="lazy" />
+        <div class="anywhere-caption">
+          <span class="caption-icon">🏃</span>
+          <span data-lang="de">Beim Sport</span>
+          <span data-lang="en">During a run</span>
+        </div>
+      </div>
+      <div class="anywhere-card">
+        <img src="nerd-dog.png" alt="Coding while walking the dog" loading="lazy" />
+        <div class="anywhere-caption">
+          <span class="caption-icon">🐕</span>
+          <span data-lang="de">Beim Gassi gehen</span>
+          <span data-lang="en">Walking the dog</span>
+        </div>
+      </div>
+      <div class="anywhere-card">
+        <img src="nerd-train.png" alt="Coding on the train" loading="lazy" />
+        <div class="anywhere-caption">
+          <span class="caption-icon">🚆</span>
+          <span data-lang="de">In der Bahn</span>
+          <span data-lang="en">On the train</span>
+        </div>
       </div>
     </div>
   </div>
