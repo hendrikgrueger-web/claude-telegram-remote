@@ -135,11 +135,13 @@ class ClaudeRunner:
             cmd = self._build_cmd(prompt, session_id, model)
             cwd = str(Path(directory).expanduser())
             try:
+                env = {**os.environ, "CLAUDE_TELEGRAM_ACTIVE": "1"}
                 self._process = await asyncio.create_subprocess_exec(
                     *cmd,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=cwd,
+                    env=env,
                 )
                 new_session_id, stderr_output, return_code = await asyncio.wait_for(
                     self._collect(on_event),

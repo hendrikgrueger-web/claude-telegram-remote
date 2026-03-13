@@ -21,6 +21,10 @@ PERMISSION_SERVER_URL = f"http://127.0.0.1:{PERMISSION_SERVER_PORT}"
 
 
 def main() -> None:
+    # Nur im Bot-Kontext aktiv (nicht bei lokalen Claude Code Sessions)
+    if os.getenv("CLAUDE_TELEGRAM_ACTIVE") != "1":
+        return
+
     # Tool-Info von stdin lesen (Claude CLI sendet JSON)
     try:
         tool_info = json.load(sys.stdin)
