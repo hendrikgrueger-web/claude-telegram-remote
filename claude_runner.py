@@ -133,6 +133,9 @@ class ClaudeRunner:
                 stderr_lower = stderr_output.lower()
                 if any(kw in stderr_lower for kw in ["session not found", "invalid session", "no such session"]):
                     raise SessionExpiredError(f"Session abgelaufen: {stderr_output[:200]}")
+                # exit 1 mit leerem stderr + aktiver Session → abgelaufene Session
+                if return_code == 1 and not stderr_output.strip() and session_id:
+                    raise SessionExpiredError("Session abgelaufen (exit 1, kein stderr)")
                 raise RuntimeError(f"claude exit {return_code}: {stderr_output[:200]}")
 
             return new_session_id
