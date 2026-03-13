@@ -18,6 +18,10 @@ TIMEOUT = int(os.getenv("CLAUDE_TIMEOUT_SECONDS", "300"))
 EDIT_INTERVAL = 2.0
 MAX_MSG_LEN = 4096
 
+# Globaler Usage-Tracker (letzte Anfrage + kumuliert pro Session)
+last_usage: dict = {}
+session_usage: dict = {"input_tokens": 0, "output_tokens": 0, "requests": 0}
+
 
 def split_for_telegram(text: str, max_len: int = MAX_MSG_LEN) -> list[str]:
     """Teilt Text in Chunks ≤ max_len, bevorzugt am letzten Newline."""
@@ -160,6 +164,13 @@ class ClaudeRunner:
                             await on_chunk(block["text"])
                 elif event_type == "result":
                     new_session_id = event.get("session_id")
+                    usage = event.get("usage", {})
+                    if usage:
+                        last_usage.clear()
+                        last_usage.update(usage)
+                        session_usage["input_tokens"] += usage.get("input_tokens", 0)
+                        session_usage["output_tokens"] += usage.get("output_tokens", 0)
+                        session_usage["requests"] += 1
 
         await asyncio.gather(read_stdout(), read_stderr())
         return_code = await self._process.wait()

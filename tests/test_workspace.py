@@ -27,39 +27,39 @@ def test_get_active_returns_active_workspace(mgr):
 
 
 def test_get_by_name(mgr):
-    mgr.switch("gruepi", directory="/tmp/gruepi")
+    mgr.switch("dev", directory="/tmp/dev")
     mgr.switch("main")
-    ws = mgr.get("gruepi")
-    assert ws["directory"] == "/tmp/gruepi"
+    ws = mgr.get("dev")
+    assert ws["directory"] == "/tmp/dev"
 
 
 def test_switch_creates_new_workspace_if_not_exists(mgr, tmp_path):
-    mgr.switch("gruepi", directory=str(tmp_path / "gruepi"))
-    assert mgr.get_active_name() == "gruepi"
+    mgr.switch("dev", directory=str(tmp_path / "dev"))
+    assert mgr.get_active_name() == "dev"
     ws = mgr.get_active()
-    assert ws["directory"] == str(tmp_path / "gruepi")
+    assert ws["directory"] == str(tmp_path / "dev")
 
 
 def test_switch_to_existing_workspace(mgr, tmp_path):
-    mgr.switch("gruepi", directory=str(tmp_path / "gruepi"))
+    mgr.switch("dev", directory=str(tmp_path / "dev"))
     mgr.switch("main")
-    mgr.switch("gruepi")
-    assert mgr.get_active_name() == "gruepi"
+    mgr.switch("dev")
+    assert mgr.get_active_name() == "dev"
 
 
 def test_list_workspaces_returns_all(mgr, tmp_path):
-    mgr.switch("gruepi", directory=str(tmp_path / "gruepi"))
+    mgr.switch("dev", directory=str(tmp_path / "dev"))
     mgr.switch("main")
     names = mgr.list_names()
     assert "main" in names
-    assert "gruepi" in names
+    assert "dev" in names
 
 
 def test_delete_workspace(mgr, tmp_path):
-    mgr.switch("gruepi", directory=str(tmp_path / "gruepi"))
+    mgr.switch("dev", directory=str(tmp_path / "dev"))
     mgr.switch("main")
-    mgr.delete("gruepi")
-    assert "gruepi" not in mgr.list_names()
+    mgr.delete("dev")
+    assert "dev" not in mgr.list_names()
 
 
 def test_delete_active_workspace_raises(mgr):

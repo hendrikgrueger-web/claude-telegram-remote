@@ -13,7 +13,7 @@ Steuere Claude Code von ueberall — beim Spazierengehen, im Gym, unterwegs.
 | `workspace.py` | WorkspaceManager: Workspace-State + Model-Auswahl (JSON-Persistenz) |
 | `claude_runner.py` | ClaudeRunner: claude CLI Subprocess + Streaming; OutputStreamer: batched Edits |
 | `start.sh` | launchd Wrapper (laedt .env, startet bot.py via .venv) |
-| `com.hendrik.claude-telegram.plist` | launchd LaunchAgent Definition |
+| `com.claude-telegram-remote.bot.plist` | launchd LaunchAgent Definition |
 | `install.sh` | Setup: venv erstellen, Dependencies, Claude CLI finden, launchd einrichten |
 
 ## Installation
@@ -53,11 +53,11 @@ launchctl list | grep claude-telegram
 tail -f ~/Library/Logs/claude-telegram/error.log
 
 # Neustart
-launchctl kickstart -k gui/$(id -u)/com.hendrik.claude-telegram
+launchctl kickstart -k gui/$(id -u)/com.claude-telegram-remote.bot
 
 # Stop / Start
-launchctl unload ~/Library/LaunchAgents/com.hendrik.claude-telegram.plist
-launchctl load ~/Library/LaunchAgents/com.hendrik.claude-telegram.plist
+launchctl unload ~/Library/LaunchAgents/com.claude-telegram-remote.bot.plist
+launchctl load ~/Library/LaunchAgents/com.claude-telegram-remote.bot.plist
 ```
 
 ## Telegram-Befehle

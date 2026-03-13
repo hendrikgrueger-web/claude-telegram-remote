@@ -4,7 +4,7 @@ set -e
 
 INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOGS_DIR="$HOME/Library/Logs/claude-telegram"
-PLIST_NAME="com.hendrik.claude-telegram"
+PLIST_NAME="com.claude-telegram-remote.bot"
 PLIST_SRC="$INSTALL_DIR/$PLIST_NAME.plist"
 PLIST_DEST="$HOME/Library/LaunchAgents/$PLIST_NAME.plist"
 CONFIG_DIR="$HOME/.config/claude-telegram"

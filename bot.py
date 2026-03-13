@@ -21,7 +21,7 @@ from telegram.ext import (
     filters,
 )
 
-from claude_runner import ClaudeRunner, OutputStreamer, SessionExpiredError
+from claude_runner import ClaudeRunner, OutputStreamer, SessionExpiredError, last_usage, session_usage, CLAUDE_BIN
 from workspace import WorkspaceManager
 
 load_dotenv()
@@ -31,6 +31,7 @@ load_dotenv()
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 ALLOWED_USER_ID = int(os.environ["ALLOWED_USER_ID"])
 DEFAULT_DIR = os.getenv("DEFAULT_WORKSPACE_DIR", "~/Coding")
+MAX_MESSAGE_LEN = 4000
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,10 +48,15 @@ runner = ClaudeRunner()
 # ── Auth-Decorator ────────────────────────────────────────────────────────────
 
 def authorized_only(func):
-    """Ignoriert alle Nachrichten von nicht-autorisierten Usern."""
+    """Ignoriert und loggt alle Nachrichten von nicht-autorisierten Usern."""
     @functools.wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.effective_user and update.effective_user.id != ALLOWED_USER_ID:
+            user = update.effective_user
+            logger.warning(
+                "Unauthorized access: user_id=%s username=%s name=%s",
+                user.id, user.username, user.full_name,
+            )
             return
         return await func(update, context)
     return wrapper
@@ -70,8 +76,12 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "*Claude-Befehle:*\n"
         "`/model` — Aktuelles Modell anzeigen\n"
         "`/model opus|sonnet|haiku` — Modell wechseln\n"
-        "`/clear` — Session löschen, neu starten\n"
-        "`/compact` — Kontext zurücksetzen\n\n"
+        "`/plan` — Plan-Modus an/aus\n"
+        "`/clear` — Session loeschen, neu starten\n"
+        "`/compact` — Kontext zuruecksetzen\n"
+        "`/usage` — Token-Verbrauch anzeigen\n"
+        "`/skills` — Installierte Skills auflisten\n"
+        "`/rename <name>` — Workspace umbenennen\n\n"
         "*System-Befehle:*\n"
         "`/stop` — Laufende Anfrage abbrechen\n"
         "`/status` — Aktueller Workspace und Verzeichnis\n"
@@ -90,7 +100,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     busy = "⏳ Läuft gerade" if runner.is_busy() else "✅ Bereit"
 
     try:
-        result = subprocess.run(["claude", "--version"], capture_output=True, text=True, timeout=5)
+        result = subprocess.run([CLAUDE_BIN, "--version"], capture_output=True, text=True, timeout=5)
         claude_version = result.stdout.strip() or result.stderr.strip() or "unbekannt"
     except Exception:
         claude_version = "nicht erreichbar"
@@ -217,6 +227,76 @@ async def cmd_compact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@authorized_only
+async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    current = ws_manager.get_plan_mode()
+    ws_manager.set_plan_mode(not current)
+    state = "aktiviert" if not current else "deaktiviert"
+    await update.message.reply_text(
+        f"Plan-Modus *{state}*.\n"
+        + ("Claude erstellt nur Plaene, implementiert nichts." if not current else "Claude arbeitet normal."),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+@authorized_only
+async def cmd_rename(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "Usage: `/rename <neuer_name>`", parse_mode=ParseMode.MARKDOWN
+        )
+        return
+    old_name = ws_manager.get_active_name()
+    new_name = args[0]
+    try:
+        ws_manager.rename(old_name, new_name)
+        await update.message.reply_text(
+            f"Workspace *{old_name}* umbenannt zu *{new_name}*.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    except (KeyError, ValueError) as e:
+        await update.message.reply_text(f"Fehler: {e}")
+
+
+@authorized_only
+async def cmd_usage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not session_usage["requests"]:
+        await update.message.reply_text("Noch keine Anfragen in dieser Session.")
+        return
+
+    last_in = last_usage.get("input_tokens", 0)
+    last_out = last_usage.get("output_tokens", 0)
+    total_in = session_usage["input_tokens"]
+    total_out = session_usage["output_tokens"]
+    reqs = session_usage["requests"]
+
+    text = (
+        "*Letzte Anfrage:*\n"
+        f"  Input: `{last_in:,}` | Output: `{last_out:,}` Tokens\n\n"
+        f"*Session gesamt ({reqs} Anfragen):*\n"
+        f"  Input: `{total_in:,}` | Output: `{total_out:,}` Tokens"
+    )
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
+
+@authorized_only
+async def cmd_skills(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    skills_dir = Path.home() / ".claude" / "skills"
+    if not skills_dir.exists():
+        await update.message.reply_text("Kein Skills-Verzeichnis gefunden.")
+        return
+    skills = sorted(f.stem for f in skills_dir.iterdir() if f.is_file() and not f.name.startswith("."))
+    if not skills:
+        await update.message.reply_text("Keine Skills installiert.")
+        return
+    lines = "\n".join(f"  `{s}`" for s in skills)
+    await update.message.reply_text(
+        f"*Installierte Skills ({len(skills)}):*\n{lines}",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
 # ── Nachrichten-Handler (→ Claude) ───────────────────────────────────────────
 
 @authorized_only
@@ -226,8 +306,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = update.message.text
+    if len(text) > MAX_MESSAGE_LEN:
+        await update.message.reply_text(f"Nachricht zu lang ({len(text)}/{MAX_MESSAGE_LEN} Zeichen).")
+        return
+
     ws = ws_manager.get_active()
     session_id = ws.get("session_id")
+
+    if ws_manager.get_plan_mode():
+        text = f"Erstelle einen detaillierten Plan fuer folgende Aufgabe. Implementiere NICHTS, plane nur:\n\n{text}"
 
     status_msg = await update.message.reply_text(
         "🤔 _Claude denkt nach..._", parse_mode=ParseMode.MARKDOWN
@@ -270,7 +357,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         logger.error("Unbehandelter Fehler: %s", e, exc_info=True)
-        await update.message.reply_text(f"❌ Fehler: {e}")
+        await update.message.reply_text("Ein Fehler ist aufgetreten. Details im Log.")
 
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
@@ -286,10 +373,14 @@ def main():
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(CommandHandler("clear", cmd_clear))
     app.add_handler(CommandHandler("compact", cmd_compact))
+    app.add_handler(CommandHandler("plan", cmd_plan))
+    app.add_handler(CommandHandler("rename", cmd_rename))
+    app.add_handler(CommandHandler("usage", cmd_usage))
+    app.add_handler(CommandHandler("skills", cmd_skills))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot gestartet. Workspace: %s", ws_manager.get_active_name())
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(allowed_updates=["message"])
 
 
 if __name__ == "__main__":

@@ -71,11 +71,11 @@ tail -f ~/Library/Logs/claude-telegram/error.log
 launchctl list | grep claude-telegram
 
 # Neustart
-launchctl kickstart -k gui/$(id -u)/com.hendrik.claude-telegram
+launchctl kickstart -k gui/$(id -u)/com.claude-telegram-remote.bot
 
 # Stop / Start
-launchctl unload ~/Library/LaunchAgents/com.hendrik.claude-telegram.plist
-launchctl load ~/Library/LaunchAgents/com.hendrik.claude-telegram.plist
+launchctl unload ~/Library/LaunchAgents/com.claude-telegram-remote.bot.plist
+launchctl load ~/Library/LaunchAgents/com.claude-telegram-remote.bot.plist
 ```
 
 ### Sicherheit
@@ -172,11 +172,11 @@ tail -f ~/Library/Logs/claude-telegram/error.log
 launchctl list | grep claude-telegram
 
 # Restart
-launchctl kickstart -k gui/$(id -u)/com.hendrik.claude-telegram
+launchctl kickstart -k gui/$(id -u)/com.claude-telegram-remote.bot
 
 # Stop / Start
-launchctl unload ~/Library/LaunchAgents/com.hendrik.claude-telegram.plist
-launchctl load ~/Library/LaunchAgents/com.hendrik.claude-telegram.plist
+launchctl unload ~/Library/LaunchAgents/com.claude-telegram-remote.bot.plist
+launchctl load ~/Library/LaunchAgents/com.claude-telegram-remote.bot.plist
 ```
 
 ### Security

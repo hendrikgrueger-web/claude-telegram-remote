@@ -74,6 +74,24 @@ class WorkspaceManager:
         ws["model"] = model
         self._save()
 
+    def get_plan_mode(self) -> bool:
+        return self.get_active().get("plan_mode", False)
+
+    def set_plan_mode(self, enabled: bool) -> None:
+        ws = self.get_active()
+        ws["plan_mode"] = enabled
+        self._save()
+
+    def rename(self, old_name: str, new_name: str) -> None:
+        if old_name not in self._state["workspaces"]:
+            raise KeyError(f"Workspace '{old_name}' nicht gefunden.")
+        if new_name in self._state["workspaces"]:
+            raise ValueError(f"Workspace '{new_name}' existiert bereits.")
+        self._state["workspaces"][new_name] = self._state["workspaces"].pop(old_name)
+        if self._state["active"] == old_name:
+            self._state["active"] = new_name
+        self._save()
+
     def _create_workspace(self, name: str, directory: str) -> None:
         self._state["workspaces"][name] = {
             "directory": str(Path(directory).expanduser()),
@@ -90,4 +108,7 @@ class WorkspaceManager:
         return {"active": "main", "workspaces": {}}
 
     def _save(self) -> None:
-        self._file.write_text(json.dumps(self._state, indent=2))
+        tmp = self._file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(self._state, indent=2))
+        tmp.chmod(0o600)
+        tmp.rename(self._file)
