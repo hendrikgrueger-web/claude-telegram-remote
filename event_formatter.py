@@ -115,7 +115,7 @@ class EventFormatter:
             return inp.get("file_path", str(inp))[:MAX_TOOL_INPUT_PREVIEW]
         elif event.tool_name == "Bash":
             cmd = inp.get("command", str(inp))[:MAX_TOOL_INPUT_PREVIEW]
-            return f"`{cmd}`"
+            return f"<code>{html.escape(cmd)}</code>"
         elif event.tool_name == "Grep":
             return f"'{inp.get('pattern', '')}' in {inp.get('path', '.')}"
         elif event.tool_name == "Glob":

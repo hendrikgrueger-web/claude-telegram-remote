@@ -23,6 +23,7 @@ from telegram.ext import (
     filters,
 )
 
+from acknowledgements import get_acknowledgement
 from claude_runner import ClaudeRunner, EventType, RunEvent, SessionExpiredError, last_usage, session_usage, CLAUDE_BIN
 from event_formatter import EventFormatter
 from permission_server import PermissionServer, ToolCategory
@@ -400,6 +401,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ws = ws_manager.get_active()
     session_id = ws.get("session_id")
+
+    # Sofortige Bestätigung senden
+    await update.message.reply_text(get_acknowledgement())
 
     if ws_manager.get_plan_mode():
         text = f"Erstelle einen detaillierten Plan fuer folgende Aufgabe. Implementiere NICHTS, plane nur:\n\n{text}"
