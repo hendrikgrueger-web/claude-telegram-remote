@@ -57,6 +57,9 @@ _bot_instance = None
 # Kurzzeit-Registry fuer erkannte Sessions (key → {directory, session_id})
 _session_registry: dict[str, dict] = {}
 
+# Kurzzeit-Registry fuer GitHub-Repos (nummer → repo-dict)
+_github_registry: dict[str, dict] = {}
+
 
 # ── Permission-Callback ───────────────────────────────────────────────────────
 
@@ -487,7 +490,7 @@ async def cmd_github(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         proc = await asyncio.create_subprocess_exec(
             gh_bin, "repo", "list",
-            "--json", "name,description,isPrivate,pushedAt",
+            "--json", "name,description,isPrivate,pushedAt,nameWithOwner",
             "--limit", "50",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -529,17 +532,32 @@ async def cmd_github(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg)
         return
 
+    # Registry befüllen für Nummer-Buttons
+    _github_registry.clear()
     lines = [f"📦 <b>GitHub Repositories</b> ({len(repos)})\n"]
-    for repo in repos:
+    for i, repo in enumerate(repos, 1):
         icon = "🔒" if repo.get("isPrivate") else "🌍"
         name = html_mod.escape(repo["name"])
         desc = repo.get("description") or ""
-        desc_line = f"\n   <i>{html_mod.escape(desc[:80])}</i>" if desc else ""
-        lines.append(f"{icon} <code>{name}</code>{desc_line}")
+        desc_line = f"\n    <i>{html_mod.escape(desc[:70])}</i>" if desc else ""
+        lines.append(f"{icon} <b>{i}.</b> <code>{name}</code>{desc_line}")
+        _github_registry[str(i)] = repo
+
+    # Nummer-Buttons in Reihen zu 5
+    button_rows = []
+    row = []
+    for i in range(1, len(repos) + 1):
+        row.append(InlineKeyboardButton(str(i), callback_data=f"gh:{i}"))
+        if len(row) == 5:
+            button_rows.append(row)
+            row = []
+    if row:
+        button_rows.append(row)
 
     await update.message.reply_text(
         "\n".join(lines),
         parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(button_rows),
     )
 
 
@@ -609,6 +627,49 @@ async def handle_ws_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"💬 Session wiederhergestellt",
             parse_mode=ParseMode.HTML,
         )
+
+
+# ── GitHub Repo Callback ──────────────────────────────────────────────────────
+
+async def handle_github_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Zeigt Details zu einem GitHub-Repo wenn Nummer geklickt wird."""
+    query = update.callback_query
+    if not query or not query.data:
+        return
+    if update.effective_user and update.effective_user.id != ALLOWED_USER_ID:
+        await query.answer("Nicht autorisiert.")
+        return
+    try:
+        await query.answer()
+    except Exception:
+        pass
+
+    import html as html_mod
+    num = query.data.split(":", 1)[1]
+    repo = _github_registry.get(num)
+    if not repo:
+        await query.edit_message_text("❌ Repo nicht mehr verfügbar. /github neu laden.")
+        return
+
+    name = repo["name"]
+    desc = repo.get("description") or "–"
+    icon = "🔒 Privat" if repo.get("isPrivate") else "🌍 Public"
+    gh_user = repo.get("_owner", "")
+    if not gh_user:
+        # Aus nameWithOwner ableiten falls vorhanden, sonst leer lassen
+        nwo = repo.get("nameWithOwner", "")
+        gh_user = nwo.split("/")[0] if "/" in nwo else ""
+    prefix = f"github.com/{gh_user}" if gh_user else "github.com/<user>"
+    clone_https = f"https://{prefix}/{name}.git"
+    clone_ssh = f"git@github.com:{gh_user}/{name}.git" if gh_user else f"git@github.com:<user>/{name}.git"
+
+    await query.edit_message_text(
+        f"📦 <b>{html_mod.escape(name)}</b>  {icon}\n\n"
+        f"<i>{html_mod.escape(desc)}</i>\n\n"
+        f"<b>HTTPS:</b>\n<code>git clone {html_mod.escape(clone_https)}</code>\n\n"
+        f"<b>SSH:</b>\n<code>git clone {html_mod.escape(clone_ssh)}</code>",
+        parse_mode=ParseMode.HTML,
+    )
 
 
 # ── Permission-Button Handler ─────────────────────────────────────────────────
@@ -748,6 +809,7 @@ def main():
     # Inline-Button Callbacks (VOR dem Message Handler!)
     app.add_handler(CallbackQueryHandler(handle_permission_callback, pattern="^perm:"))
     app.add_handler(CallbackQueryHandler(handle_ws_callback, pattern="^ws:"))
+    app.add_handler(CallbackQueryHandler(handle_github_callback, pattern="^gh:"))
 
     # Messages
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
