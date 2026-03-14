@@ -374,31 +374,91 @@ async def cmd_skills(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+def _detect_claude_sessions() -> list[dict]:
+    """Liest ~/.claude/projects/ und gibt alle bekannten Sessions zurueck."""
+    projects_dir = Path.home() / ".claude" / "projects"
+    if not projects_dir.exists():
+        return []
+    results = []
+    for proj in sorted(projects_dir.iterdir(), key=lambda p: -p.stat().st_mtime):
+        sessions = sorted(proj.glob("*.jsonl"), key=os.path.getmtime, reverse=True)
+        if not sessions:
+            continue
+        cwd = None
+        try:
+            with open(sessions[0]) as f:
+                for i, line in enumerate(f):
+                    if i > 30:
+                        break
+                    try:
+                        d = json.loads(line)
+                        if "cwd" in d:
+                            cwd = d["cwd"]
+                            break
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        if cwd:
+            results.append({"directory": cwd, "session_id": sessions[0].stem})
+    return results
+
+
 @authorized_only
 async def cmd_sessions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Zeigt alle Workspaces als klickbare Inline-Buttons."""
+    """Zeigt alle Claude Code Sessions + Bot-Workspaces als klickbare Buttons."""
     import html as html_mod
-    names = ws_manager.list_names()
-    active = ws_manager.get_active_name()
+    active_name = ws_manager.get_active_name()
+    active_dir = ws_manager.get_active()["directory"]
+
+    # Bekannte Bot-Workspaces
+    ws_names = ws_manager.list_names()
+    ws_by_dir = {ws_manager.get(n)["directory"]: n for n in ws_names}
+
+    # Alle Claude Code Sessions aus ~/.claude/projects/
+    detected = _detect_claude_sessions()
 
     lines = []
     buttons = []
-    for name in names:
+    seen_dirs: set[str] = set()
+
+    # Zuerst bestehende Workspaces anzeigen
+    for name in ws_names:
         ws = ws_manager.get(name)
-        directory = ws["directory"].replace(os.path.expanduser("~"), "~")
+        directory = ws["directory"]
+        seen_dirs.add(directory)
+        short_dir = directory.replace(os.path.expanduser("~"), "~")
         has_session = bool(ws.get("session_id"))
+        is_active = name == active_name
+        marker = "▶ " if is_active else "   "
         session_icon = "💬" if has_session else "○"
-        marker = "▶ " if name == active else "   "
         lines.append(
             f"{marker}<b>{html_mod.escape(name)}</b> {session_icon}  "
-            f"<code>{html_mod.escape(directory)}</code>"
+            f"<code>{html_mod.escape(short_dir)}</code>"
         )
-        label = f"{'▶ ' if name == active else ''}{name} {'💬' if has_session else '○'}"
+        label = f"{'▶ ' if is_active else ''}{name} {session_icon}"
         buttons.append([InlineKeyboardButton(label, callback_data=f"ws:switch:{name}")])
+
+    # Dann neu erkannte Sessions die noch keinen Workspace haben
+    new_sessions = [s for s in detected if s["directory"] not in seen_dirs]
+    if new_sessions:
+        lines.append("\n<i>Erkannte Claude Code Sessions (kein Workspace):</i>")
+    for s in new_sessions:
+        short_dir = s["directory"].replace(os.path.expanduser("~"), "~")
+        dir_name = Path(s["directory"]).name
+        lines.append(f"   ○  <code>{html_mod.escape(short_dir)}</code>")
+        # Button öffnet diese Session direkt
+        import urllib.parse
+        payload = f"ws:open:{urllib.parse.quote(s['directory'])}:{s['session_id']}"
+        if len(payload) <= 64:
+            buttons.append([InlineKeyboardButton(
+                f"+ {dir_name} 💬",
+                callback_data=payload,
+            )])
 
     keyboard = InlineKeyboardMarkup(buttons)
     await update.message.reply_text(
-        "🗂 <b>Workspaces</b>\n\n" + "\n".join(lines),
+        "🗂 <b>Sessions</b>\n\n" + "\n".join(lines),
         parse_mode=ParseMode.HTML,
         reply_markup=keyboard,
     )
@@ -488,26 +548,52 @@ async def handle_ws_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception:
         pass
 
-    parts = query.data.split(":", 2)
-    if len(parts) != 3 or parts[0] != "ws":
+    import html as html_mod
+    import urllib.parse
+
+    parts = query.data.split(":", 3)
+    if not parts or parts[0] != "ws":
         return
 
-    name = parts[2]
-    try:
-        ws = ws_manager.switch(name)
-        import html as html_mod
-        directory = ws["directory"].replace(os.path.expanduser("~"), "~")
-        session_info = "bestehende Session 💬" if ws.get("session_id") else "neue Session ○"
+    action = parts[1] if len(parts) > 1 else ""
+
+    if action == "switch" and len(parts) >= 3:
+        name = parts[2]
+        try:
+            ws = ws_manager.switch(name)
+            directory = ws["directory"].replace(os.path.expanduser("~"), "~")
+            session_info = "bestehende Session 💬" if ws.get("session_id") else "neue Session ○"
+            await query.edit_message_text(
+                f"✅ Gewechselt zu <b>{html_mod.escape(name)}</b>\n"
+                f"📁 <code>{html_mod.escape(directory)}</code>\n"
+                f"💬 {session_info}",
+                parse_mode=ParseMode.HTML,
+            )
+        except KeyError:
+            await query.edit_message_text(f"❌ Workspace '{name}' nicht gefunden.")
+        except Exception as e:
+            await query.edit_message_text(f"❌ Fehler: {e}")
+
+    elif action == "open" and len(parts) >= 4:
+        # Neue Session aus ~/.claude/projects/ als Workspace hinzufügen
+        directory = urllib.parse.unquote(parts[2])
+        session_id = parts[3]
+        dir_name = Path(directory).name
+        # Workspace-Namen aus Verzeichnis-Name ableiten (einmalig)
+        ws_name = dir_name
+        counter = 1
+        while ws_name in ws_manager.list_names():
+            ws_name = f"{dir_name}-{counter}"
+            counter += 1
+        ws = ws_manager.switch(ws_name, directory=directory)
+        ws_manager.set_session_id(session_id)
+        short_dir = directory.replace(os.path.expanduser("~"), "~")
         await query.edit_message_text(
-            f"✅ Gewechselt zu <b>{html_mod.escape(name)}</b>\n"
-            f"📁 <code>{html_mod.escape(directory)}</code>\n"
-            f"💬 {session_info}",
+            f"✅ Session geöffnet als <b>{html_mod.escape(ws_name)}</b>\n"
+            f"📁 <code>{html_mod.escape(short_dir)}</code>\n"
+            f"💬 Session wiederhergestellt",
             parse_mode=ParseMode.HTML,
         )
-    except KeyError:
-        await query.edit_message_text(f"❌ Workspace '{name}' nicht gefunden.")
-    except Exception as e:
-        await query.edit_message_text(f"❌ Fehler: {e}")
 
 
 # ── Permission-Button Handler ─────────────────────────────────────────────────
