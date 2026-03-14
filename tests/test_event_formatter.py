@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 # TODO: Bei Integration durch Import ersetzen: from claude_runner import RunEvent, EventType, split_for_telegram
 # Inline-Definition (wird bei Integration durch Import ersetzt)
-from event_formatter import EventFormatter, EventType, RunEvent
+from event_formatter import EventFormatter, EventType, RunEvent, _shorten_path
 
 
 @pytest.mark.asyncio
@@ -243,3 +243,54 @@ async def test_grep_format_shows_pattern_and_path():
     text = send.call_args[0][0]
     assert "myFunc" in text
     assert "src/" in text
+
+
+@pytest.mark.asyncio
+async def test_consecutive_reads_grouped():
+    """Mehrere aufeinanderfolgende Reads werden als 'Read x3' gruppiert."""
+    send = AsyncMock(return_value=MagicMock(message_id=1))
+    edit = AsyncMock()
+    fmt = EventFormatter(send_fn=send, edit_fn=edit)
+
+    for f in ["a.py", "b.py", "c.py"]:
+        await fmt.handle_event(RunEvent(
+            type=EventType.TOOL_USE,
+            tool_name="Read",
+            tool_input={"file_path": f},
+        ))
+
+    last_text = edit.call_args[0][1]
+    assert "x3" in last_text
+    assert "c.py" in last_text  # Letzter Eintrag sichtbar
+
+
+@pytest.mark.asyncio
+async def test_different_tools_not_grouped():
+    """Verschiedene Tools werden nicht gruppiert."""
+    send = AsyncMock(return_value=MagicMock(message_id=1))
+    edit = AsyncMock()
+    fmt = EventFormatter(send_fn=send, edit_fn=edit)
+
+    await fmt.handle_event(RunEvent(
+        type=EventType.TOOL_USE, tool_name="Read",
+        tool_input={"file_path": "a.py"},
+    ))
+    await fmt.handle_event(RunEvent(
+        type=EventType.TOOL_USE, tool_name="Bash",
+        tool_input={"command": "ls"},
+    ))
+
+    last_text = edit.call_args[0][1]
+    assert "x" not in last_text or "x2" not in last_text
+
+
+def test_shorten_path_long():
+    """Lange Pfade werden auf letzte 2 Segmente gekuerzt."""
+    result = _shorten_path("/Users/hendrik/Coding/1_privat/Apple Apps/Mathe-Eule/ContentView.swift")
+    assert result == "Mathe-Eule/ContentView.swift"
+
+
+def test_shorten_path_short():
+    """Kurze Pfade bleiben unveraendert."""
+    assert _shorten_path("foo.py") == "foo.py"
+    assert _shorten_path("src/main.py") == "src/main.py"
