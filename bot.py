@@ -139,6 +139,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "🤖 *Claude Remote Control*\n\n"
         "*Workspace-Befehle:*\n"
+        "`/sessions` — Workspaces als klickbare Buttons\n"
         "`/ws list` — Alle Workspaces anzeigen\n"
         "`/ws <name>` — Workspace wechseln / anlegen\n"
         "`/ws <name> <pfad>` — Workspace mit Verzeichnis anlegen\n"
@@ -152,6 +153,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/usage` — Token-Verbrauch anzeigen\n"
         "`/skills` — Installierte Skills auflisten\n"
         "`/rename <name>` — Workspace umbenennen\n\n"
+        "*GitHub:*\n"
+        "`/github` — Deine Repos anzeigen\n"
+        "`/github <filter>` — Repos filtern\n\n"
         "*Permissions:*\n"
         "Claude fragt bei Write/Edit/Bash um Erlaubnis via Button.\n"
         "Harmlose Tools (Read/Grep) laufen automatisch.\n\n"
@@ -370,6 +374,142 @@ async def cmd_skills(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@authorized_only
+async def cmd_sessions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Zeigt alle Workspaces als klickbare Inline-Buttons."""
+    import html as html_mod
+    names = ws_manager.list_names()
+    active = ws_manager.get_active_name()
+
+    lines = []
+    buttons = []
+    for name in names:
+        ws = ws_manager.get(name)
+        directory = ws["directory"].replace(os.path.expanduser("~"), "~")
+        has_session = bool(ws.get("session_id"))
+        session_icon = "💬" if has_session else "○"
+        marker = "▶ " if name == active else "   "
+        lines.append(
+            f"{marker}<b>{html_mod.escape(name)}</b> {session_icon}  "
+            f"<code>{html_mod.escape(directory)}</code>"
+        )
+        label = f"{'▶ ' if name == active else ''}{name} {'💬' if has_session else '○'}"
+        buttons.append([InlineKeyboardButton(label, callback_data=f"ws:switch:{name}")])
+
+    keyboard = InlineKeyboardMarkup(buttons)
+    await update.message.reply_text(
+        "🗂 <b>Workspaces</b>\n\n" + "\n".join(lines),
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboard,
+    )
+
+
+@authorized_only
+async def cmd_github(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Listet GitHub-Repositories auf."""
+    import html as html_mod
+    args = context.args or []
+    filter_text = args[0].lower() if args else ""
+
+    await update.message.reply_text("🔍 Lade GitHub-Repos...")
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "gh", "repo", "list",
+            "--json", "name,description,isPrivate,pushedAt",
+            "--limit", "50",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+    except FileNotFoundError:
+        await update.message.reply_text(
+            "❌ <code>gh</code> CLI nicht gefunden.\n"
+            "Installieren: <code>brew install gh</code>\n"
+            "Einrichten: <code>gh auth login</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    except asyncio.TimeoutError:
+        await update.message.reply_text("⏱ Timeout beim Laden der Repos.")
+        return
+
+    if proc.returncode != 0:
+        err = stderr.decode()[:300]
+        await update.message.reply_text(
+            f"❌ gh Fehler:\n<pre>{html_mod.escape(err)}</pre>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    import json as json_mod
+    try:
+        repos = json_mod.loads(stdout.decode())
+    except json_mod.JSONDecodeError:
+        await update.message.reply_text("❌ Konnte Repos nicht parsen.")
+        return
+
+    if filter_text:
+        repos = [r for r in repos if filter_text in r["name"].lower()
+                 or filter_text in (r.get("description") or "").lower()]
+
+    if not repos:
+        msg = f"Keine Repos gefunden" + (f" für '{filter_text}'" if filter_text else "") + "."
+        await update.message.reply_text(msg)
+        return
+
+    lines = [f"📦 <b>GitHub Repositories</b> ({len(repos)})\n"]
+    for repo in repos:
+        icon = "🔒" if repo.get("isPrivate") else "🌍"
+        name = html_mod.escape(repo["name"])
+        desc = repo.get("description") or ""
+        desc_line = f"\n   <i>{html_mod.escape(desc[:80])}</i>" if desc else ""
+        lines.append(f"{icon} <code>{name}</code>{desc_line}")
+
+    await update.message.reply_text(
+        "\n".join(lines),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ── Workspace-Switch Callback ─────────────────────────────────────────────────
+
+async def handle_ws_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Verarbeitet Workspace-Switch-Buttons aus /sessions."""
+    query = update.callback_query
+    if not query or not query.data:
+        return
+    if update.effective_user and update.effective_user.id != ALLOWED_USER_ID:
+        await query.answer("Nicht autorisiert.")
+        return
+
+    try:
+        await query.answer()
+    except Exception:
+        pass
+
+    parts = query.data.split(":", 2)
+    if len(parts) != 3 or parts[0] != "ws":
+        return
+
+    name = parts[2]
+    try:
+        ws = ws_manager.switch(name)
+        import html as html_mod
+        directory = ws["directory"].replace(os.path.expanduser("~"), "~")
+        session_info = "bestehende Session 💬" if ws.get("session_id") else "neue Session ○"
+        await query.edit_message_text(
+            f"✅ Gewechselt zu <b>{html_mod.escape(name)}</b>\n"
+            f"📁 <code>{html_mod.escape(directory)}</code>\n"
+            f"💬 {session_info}",
+            parse_mode=ParseMode.HTML,
+        )
+    except KeyError:
+        await query.edit_message_text(f"❌ Workspace '{name}' nicht gefunden.")
+    except Exception as e:
+        await query.edit_message_text(f"❌ Fehler: {e}")
+
+
 # ── Permission-Button Handler ─────────────────────────────────────────────────
 
 async def handle_permission_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -501,9 +641,12 @@ def main():
     app.add_handler(CommandHandler("rename", cmd_rename))
     app.add_handler(CommandHandler("usage", cmd_usage))
     app.add_handler(CommandHandler("skills", cmd_skills))
+    app.add_handler(CommandHandler("sessions", cmd_sessions))
+    app.add_handler(CommandHandler("github", cmd_github))
 
-    # Permission-Buttons (VOR dem Message Handler!)
-    app.add_handler(CallbackQueryHandler(handle_permission_callback))
+    # Inline-Button Callbacks (VOR dem Message Handler!)
+    app.add_handler(CallbackQueryHandler(handle_permission_callback, pattern="^perm:"))
+    app.add_handler(CallbackQueryHandler(handle_ws_callback, pattern="^ws:"))
 
     # Messages
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
