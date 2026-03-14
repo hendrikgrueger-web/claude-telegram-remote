@@ -1,12 +1,44 @@
 # event_formatter.py
 """Smart-Level Event-Formatter fuer Telegram.
 Kompakte Status-Nachricht mit live Updates: Thinking-Summary, Tool-Call-Einzeiler.
+Alle Ausgaben als HTML (Telegram ParseMode.HTML).
 """
 
+import html
+import re
 import time
 from typing import Callable, Optional
 
 from claude_runner import RunEvent, EventType, split_for_telegram
+
+
+def markdown_to_telegram_html(text: str) -> str:
+    """Konvertiert Claude's Markdown-Output in Telegram-taugliches HTML."""
+    # 1. HTML-Entities escapen (MUSS zuerst passieren)
+    text = html.escape(text)
+
+    # 2. Code-Bloecke (```lang\n...\n```) → <pre>
+    text = re.sub(r'```\w*\n(.*?)```', r'<pre>\1</pre>', text, flags=re.DOTALL)
+
+    # 3. Inline-Code (`...`) → <code>
+    text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
+
+    # 4. Bold (**text**) → <b>
+    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text, flags=re.DOTALL)
+
+    # 5. Italic (*text*) → <i>  (nicht innerhalb von <b>)
+    text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<i>\1</i>', text)
+
+    # 6. Italic (_text_) → <i>  (nicht mitten in Woertern)
+    text = re.sub(r'(?<![a-zA-Z0-9])_(.+?)_(?![a-zA-Z0-9])', r'<i>\1</i>', text)
+
+    # 7. Links [text](url) → <a>
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
+
+    # 8. Markdown-Header (### Text) → <b>Text</b> mit Newline
+    text = re.sub(r'^#{1,6}\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
+
+    return text
 
 EDIT_INTERVAL = 1.5
 MAX_THINKING_PREVIEW = 100
@@ -47,18 +79,18 @@ class EventFormatter:
             preview = event.content[:MAX_THINKING_PREVIEW]
             if len(event.content) > MAX_THINKING_PREVIEW:
                 preview += "..."
-            self._status_lines = [f"💭 _{preview}_"]
+            self._status_lines = [f"💭 <i>{html.escape(preview)}</i>"]
             await self._flush_status(force=True)
 
         elif event.type == EventType.TOOL_USE:
             icon = TOOL_ICONS.get(event.tool_name, "🔧")
             detail = self._format_tool_detail(event)
-            self._status_lines.append(f"{icon} {event.tool_name}: {detail}")
+            self._status_lines.append(f"{icon} <b>{html.escape(event.tool_name)}</b>: {html.escape(detail)}")
             await self._flush_status(force=True)
 
         elif event.type == EventType.TOOL_RESULT:
             if event.is_error:
-                self._status_lines.append(f"❌ Fehler: {event.content[:100]}")
+                self._status_lines.append(f"❌ Fehler: {html.escape(event.content[:100])}")
                 await self._flush_status(force=True)
 
         elif event.type == EventType.TEXT:
@@ -110,7 +142,8 @@ class EventFormatter:
         if not self._answer_buffer.strip():
             return
         self._last_edit = time.monotonic()
-        chunks = split_for_telegram(self._answer_buffer)
+        formatted = markdown_to_telegram_html(self._answer_buffer)
+        chunks = split_for_telegram(formatted)
         if self._answer_msg is None:
             self._answer_msg = await self._send(chunks[0])
             for extra in chunks[1:]:

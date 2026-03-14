@@ -63,20 +63,21 @@ async def on_permission_request(req):
         req.event.set()
         return
 
+    import html as html_mod
     icon = "🛑" if req.category == ToolCategory.DESTRUCTIVE else "⚠️"
     timeout_info = ""
     if req.category == ToolCategory.MODIFYING:
-        timeout_info = "\n⏱ _Auto-accept in 60s_"
+        timeout_info = "\n⏱ <i>Auto-accept in 60s</i>"
     elif req.category == ToolCategory.DESTRUCTIVE:
-        timeout_info = "\n🛑 _Wartet auf deine Entscheidung_"
+        timeout_info = "\n🛑 <i>Wartet auf deine Entscheidung</i>"
 
     detail = json.dumps(req.tool_input, indent=2, ensure_ascii=False)
     if len(detail) > 500:
         detail = detail[:500] + "..."
 
     text = (
-        f"{icon} *Permission: {req.tool_name}*\n"
-        f"```\n{detail}\n```"
+        f"{icon} <b>Permission: {html_mod.escape(req.tool_name)}</b>\n"
+        f"<pre>{html_mod.escape(detail)}</pre>"
         f"{timeout_info}"
     )
 
@@ -88,7 +89,7 @@ async def on_permission_request(req):
     await _bot_instance.send_message(
         chat_id=ALLOWED_USER_ID,
         text=text,
-        parse_mode=ParseMode.MARKDOWN,
+        parse_mode=ParseMode.HTML,
         reply_markup=keyboard,
     )
 
@@ -359,7 +360,10 @@ async def handle_permission_callback(update: Update, context: ContextTypes.DEFAU
         await query.answer("Nicht autorisiert.")
         return
 
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass  # Query kann veraltet sein — trotzdem resolve versuchen
 
     parts = query.data.split(":", 2)
     if len(parts) != 3 or parts[0] != "perm":
@@ -371,11 +375,14 @@ async def handle_permission_callback(update: Update, context: ContextTypes.DEFAU
     decision = "allow" if action == "allow" else "block"
     resolved = perm_server.resolve(request_id, decision)
 
-    if resolved:
-        emoji = "✅ Erlaubt" if decision == "allow" else "❌ Blockiert"
-        await query.edit_message_text(emoji)
-    else:
-        await query.edit_message_text("⚠️ Request bereits beantwortet")
+    try:
+        if resolved:
+            emoji = "✅ Erlaubt" if decision == "allow" else "❌ Blockiert"
+            await query.edit_message_text(emoji)
+        else:
+            await query.edit_message_text("⏱ Bereits durch Timeout beantwortet")
+    except Exception:
+        pass  # Message kann bereits editiert sein
 
 
 # ── Nachrichten-Handler (→ Claude) ───────────────────────────────────────────
@@ -398,13 +405,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = f"Erstelle einen detaillierten Plan fuer folgende Aufgabe. Implementiere NICHTS, plane nur:\n\n{text}"
 
     async def send_fn(content: str):
-        return await update.message.reply_text(content)
+        try:
+            return await update.message.reply_text(content, parse_mode=ParseMode.HTML)
+        except Exception:
+            # Fallback ohne Formatierung bei Parse-Fehlern
+            return await update.message.reply_text(content)
 
     async def edit_fn(msg, content: str):
         try:
-            await msg.edit_text(content)
+            await msg.edit_text(content, parse_mode=ParseMode.HTML)
         except Exception:
-            pass
+            try:
+                await msg.edit_text(content)
+            except Exception:
+                pass
 
     formatter = EventFormatter(send_fn=send_fn, edit_fn=edit_fn)
 

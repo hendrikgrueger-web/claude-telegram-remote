@@ -226,7 +226,7 @@ async def test_thinking_uses_italic_format():
     ))
     text = send.call_args[0][0]
     assert "💭" in text
-    assert "_" in text  # Kursiv-Formatierung
+    assert "<i>" in text  # HTML Kursiv-Formatierung
 
 
 @pytest.mark.asyncio
