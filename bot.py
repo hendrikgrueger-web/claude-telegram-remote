@@ -57,6 +57,10 @@ _bot_instance = None
 
 # ── Permission-Callback ───────────────────────────────────────────────────────
 
+# Message-IDs der Permission-Nachrichten (request_id → message_id)
+_perm_messages: dict[str, int] = {}
+
+
 async def on_permission_request(req):
     """Wird vom PermissionServer aufgerufen — zeigt Telegram Inline-Keyboard."""
     if not _bot_instance:
@@ -87,12 +91,28 @@ async def on_permission_request(req):
         InlineKeyboardButton("❌ Blockieren", callback_data=f"perm:block:{req.request_id}"),
     ]])
 
-    await _bot_instance.send_message(
+    msg = await _bot_instance.send_message(
         chat_id=ALLOWED_USER_ID,
         text=text,
         parse_mode=ParseMode.HTML,
         reply_markup=keyboard,
     )
+    _perm_messages[req.request_id] = msg.message_id
+
+
+async def on_auto_accept(req):
+    """Wird aufgerufen wenn ein MODIFYING-Tool per Timeout auto-akzeptiert wird."""
+    msg_id = _perm_messages.pop(req.request_id, None)
+    if not _bot_instance or not msg_id:
+        return
+    try:
+        await _bot_instance.edit_message_text(
+            chat_id=ALLOWED_USER_ID,
+            message_id=msg_id,
+            text=f"⏱ Auto-akzeptiert: {req.tool_name}",
+        )
+    except Exception:
+        pass
 
 
 # ── Auth-Decorator ────────────────────────────────────────────────────────────
@@ -375,13 +395,14 @@ async def handle_permission_callback(update: Update, context: ContextTypes.DEFAU
 
     decision = "allow" if action == "allow" else "block"
     resolved = perm_server.resolve(request_id, decision)
+    _perm_messages.pop(request_id, None)
 
     try:
         if resolved:
             emoji = "✅ Erlaubt" if decision == "allow" else "❌ Blockiert"
             await query.edit_message_text(emoji)
         else:
-            await query.edit_message_text("⏱ Bereits durch Timeout beantwortet")
+            await query.edit_message_text("⏱ Bereits automatisch freigegeben (60s Timeout)")
     except Exception:
         pass  # Message kann bereits editiert sein
 
@@ -463,8 +484,9 @@ def main():
     app = Application.builder().token(TOKEN).build()
     _bot_instance = app.bot
 
-    # Permission-Server Callback setzen
+    # Permission-Server Callbacks setzen
     perm_server._on_permission_request = on_permission_request
+    perm_server._on_auto_accept = on_auto_accept
 
     # Commands
     app.add_handler(CommandHandler("help", cmd_help))

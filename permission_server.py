@@ -158,11 +158,13 @@ class PermissionServer:
         self,
         port: int = DEFAULT_PORT,
         on_permission_request: Optional[Callable] = None,
+        on_auto_accept: Optional[Callable] = None,
     ):
         self._port = port
         self._server: Optional[asyncio.Server] = None
         self._pending: dict[str, PermissionRequest] = {}
         self._on_permission_request = on_permission_request
+        self._on_auto_accept = on_auto_accept
         self._request_counter = 0
 
     async def start(self) -> None:
@@ -187,10 +189,14 @@ class PermissionServer:
         """Loest eine ausstehende Permission-Anfrage auf (z.B. via Telegram-Button).
 
         Returns:
-            True wenn Request gefunden und aufgeloest, False wenn unbekannte ID.
+            True wenn Request gefunden und aufgeloest, False wenn unbekannte ID
+            oder bereits aufgeloest.
         """
         req = self._pending.get(request_id)
         if not req:
+            return False
+        if req.event.is_set():
+            # Bereits durch Timeout aufgeloest
             return False
         req.decision = decision
         req.event.set()
@@ -246,15 +252,25 @@ class PermissionServer:
                 if timeout > 0:
                     await asyncio.wait_for(req.event.wait(), timeout=float(timeout))
                 else:
-                    # Kein Timeout: wartet ewig (DESTRUCTIVE) oder sofort fuer HARMLESS (nicht erreichbar)
+                    # Kein Timeout: wartet ewig (DESTRUCTIVE)
                     await req.event.wait()
             except asyncio.TimeoutError:
                 # MODIFYING Timeout → auto-accept
                 req.decision = "allow"
+                req.event.set()  # Markiere als aufgeloest
                 logger.info("Timeout fuer %s %s → auto-allow", tool_name, request_id)
+                # Telegram-Button aktualisieren
+                if self._on_auto_accept:
+                    try:
+                        await self._on_auto_accept(req)
+                    except Exception:
+                        pass
 
             decision = req.decision or "allow"
-            self._pending.pop(request_id, None)
+            # Grace-Period: Request fuer Button-Handler verfuegbar lassen
+            asyncio.get_running_loop().call_later(
+                120, lambda rid=request_id: self._pending.pop(rid, None)
+            )
 
             block_decision = "allow" if decision == "allow" else "block"
             self._send_response(writer, 200, {"decision": block_decision})
