@@ -476,9 +476,17 @@ async def cmd_github(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("🔍 Lade GitHub-Repos...")
 
+    # gh liegt oft in /opt/homebrew/bin (Homebrew, Apple Silicon)
+    gh_bin = os.getenv("GH_BIN", "")
+    if not gh_bin:
+        for candidate in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "gh"]:
+            if candidate == "gh" or Path(candidate).exists():
+                gh_bin = candidate
+                break
+
     try:
         proc = await asyncio.create_subprocess_exec(
-            "gh", "repo", "list",
+            gh_bin, "repo", "list",
             "--json", "name,description,isPrivate,pushedAt",
             "--limit", "50",
             stdout=asyncio.subprocess.PIPE,
