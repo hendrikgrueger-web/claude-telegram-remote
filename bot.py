@@ -54,6 +54,9 @@ perm_server = PermissionServer(port=PERMISSION_PORT)
 # Wird in main() mit app.bot verbunden
 _bot_instance = None
 
+# Kurzzeit-Registry fuer erkannte Sessions (key → {directory, session_id})
+_session_registry: dict[str, dict] = {}
+
 
 # ── Permission-Callback ───────────────────────────────────────────────────────
 
@@ -442,19 +445,19 @@ async def cmd_sessions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Dann neu erkannte Sessions die noch keinen Workspace haben
     new_sessions = [s for s in detected if s["directory"] not in seen_dirs]
     if new_sessions:
-        lines.append("\n<i>Erkannte Claude Code Sessions (kein Workspace):</i>")
-    for s in new_sessions:
+        lines.append("\n<i>Erkannte Claude Code Sessions:</i>")
+    _session_registry.clear()
+    for i, s in enumerate(new_sessions):
         short_dir = s["directory"].replace(os.path.expanduser("~"), "~")
         dir_name = Path(s["directory"]).name
-        lines.append(f"   ○  <code>{html_mod.escape(short_dir)}</code>")
-        # Button öffnet diese Session direkt
-        import urllib.parse
-        payload = f"ws:open:{urllib.parse.quote(s['directory'])}:{s['session_id']}"
-        if len(payload) <= 64:
-            buttons.append([InlineKeyboardButton(
-                f"+ {dir_name} 💬",
-                callback_data=payload,
-            )])
+        lines.append(f"   💬  <code>{html_mod.escape(short_dir)}</code>")
+        # Session in Registry speichern, kurzer Key im Button
+        key = str(i)
+        _session_registry[key] = s
+        buttons.append([InlineKeyboardButton(
+            f"+ {dir_name} 💬",
+            callback_data=f"ws:open:{key}",
+        )])
 
     keyboard = InlineKeyboardMarkup(buttons)
     await update.message.reply_text(
@@ -549,7 +552,6 @@ async def handle_ws_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         pass
 
     import html as html_mod
-    import urllib.parse
 
     parts = query.data.split(":", 3)
     if not parts or parts[0] != "ws":
@@ -574,10 +576,15 @@ async def handle_ws_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception as e:
             await query.edit_message_text(f"❌ Fehler: {e}")
 
-    elif action == "open" and len(parts) >= 4:
-        # Neue Session aus ~/.claude/projects/ als Workspace hinzufügen
-        directory = urllib.parse.unquote(parts[2])
-        session_id = parts[3]
+    elif action == "open" and len(parts) >= 3:
+        # Neue Session aus Registry laden
+        key = parts[2]
+        entry = _session_registry.get(key)
+        if not entry:
+            await query.edit_message_text("❌ Session nicht mehr verfügbar. /sessions neu laden.")
+            return
+        directory = entry["directory"]
+        session_id = entry["session_id"]
         dir_name = Path(directory).name
         # Workspace-Namen aus Verzeichnis-Name ableiten (einmalig)
         ws_name = dir_name
