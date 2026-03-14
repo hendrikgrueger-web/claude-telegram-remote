@@ -1,9 +1,20 @@
 # acknowledgements.py
-"""150 zufaellige Bestaetigungsnachrichten fuer eingehende Prompts."""
+"""Intelligente Bestaetigungsnachrichten fuer eingehende Prompts.
+Primaer: Haiku generiert passgenaue Zusammenfassung via Claude CLI.
+Fallback: 150 zufaellige Nachrichten.
+"""
 
+import asyncio
+import logging
+import os
 import random
 
-ACKNOWLEDGEMENTS = [
+logger = logging.getLogger(__name__)
+
+CLAUDE_BIN = os.getenv("CLAUDE_BIN", "claude")
+ACK_TIMEOUT = float(os.getenv("ACK_TIMEOUT", "4.0"))
+
+FALLBACK_MESSAGES = [
     "🚀 Angekommen! Claude denkt nach...",
     "📨 Erhalten! Bin dran...",
     "⚡ Got it! Arbeite daran...",
@@ -155,6 +166,34 @@ ACKNOWLEDGEMENTS = [
 ]
 
 
-def get_acknowledgement() -> str:
-    """Gibt eine zufaellige Bestaetigungsnachricht zurueck."""
-    return random.choice(ACKNOWLEDGEMENTS)
+def _get_fallback() -> str:
+    return random.choice(FALLBACK_MESSAGES)
+
+
+async def generate_acknowledgement(user_prompt: str) -> str:
+    """Generiert via Haiku eine passgenaue Bestaetigung. Fallback auf Zufallsnachricht."""
+    haiku_prompt = (
+        "Der User hat folgende Nachricht an Claude Code geschickt:\n"
+        f'"{user_prompt[:300]}"\n\n'
+        "Antworte mit GENAU einem kurzen Satz (max 15 Worte) mit passendem Emoji vorne. "
+        "Fasse zusammen was verstanden wurde und was jetzt passiert. "
+        "Sei locker, kreativ, abwechslungsreich. Kein Markdown. Nur der Satz, nichts sonst."
+    )
+    try:
+        proc = await asyncio.wait_for(
+            asyncio.create_subprocess_exec(
+                CLAUDE_BIN, "-p", haiku_prompt,
+                "--model", "claude-haiku-4-5-20251001",
+                "--max-turns", "1",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            ),
+            timeout=ACK_TIMEOUT,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=ACK_TIMEOUT)
+        result = stdout.decode("utf-8", errors="replace").strip()
+        if result and len(result) < 200:
+            return result
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.debug("Haiku-Acknowledgement fehlgeschlagen: %s", e)
+    return _get_fallback()
