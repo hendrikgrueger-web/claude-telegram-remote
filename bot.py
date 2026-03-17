@@ -27,6 +27,7 @@ from acknowledgements import generate_acknowledgement
 from claude_runner import ClaudeRunner, EventType, RunEvent, SessionExpiredError, last_usage, session_usage, CLAUDE_BIN
 from event_formatter import EventFormatter
 from permission_server import PermissionServer, ToolCategory
+from transcriber import transcribe_voice
 from workspace import WorkspaceManager
 
 load_dotenv()
@@ -709,6 +710,57 @@ async def handle_permission_callback(update: Update, context: ContextTypes.DEFAU
         pass  # Message kann bereits editiert sein
 
 
+# ── Voice-Handler ────────────────────────────────────────────────────────────
+
+@authorized_only
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Empfaengt Sprachnachrichten, transkribiert via Whisper, leitet an Claude weiter."""
+    if runner.is_busy():
+        await update.message.reply_text("⏳ Claude arbeitet noch. Mit /stop abbrechen.")
+        return
+
+    await update.message.reply_text("🎙️ Transkribiere Sprachnachricht...")
+
+    voice = update.message.voice or update.message.audio
+    if not voice:
+        await update.message.reply_text("❌ Keine Audio-Datei gefunden.")
+        return
+
+    import tempfile
+    tmp_path = None
+    try:
+        tg_file = await context.bot.get_file(voice.file_id)
+        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+            tmp_path = tmp.name
+            await tg_file.download_to_drive(tmp_path)
+
+        loop = asyncio.get_event_loop()
+        text = await loop.run_in_executor(None, transcribe_voice, tmp_path)
+    except RuntimeError as e:
+        await update.message.reply_text(f"❌ {e}")
+        return
+    except Exception as e:
+        logger.error("Voice-Transkription fehlgeschlagen: %s", e, exc_info=True)
+        await update.message.reply_text("❌ Transkription fehlgeschlagen. Details im Log.")
+        return
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+    if not text:
+        await update.message.reply_text("❌ Konnte keine Sprache erkennen.")
+        return
+
+    await update.message.reply_text(f"📝 *Transkription:*\n_{text}_", parse_mode=ParseMode.MARKDOWN)
+
+    # Simuliere Text-Nachricht mit dem transkribierten Text
+    update.message.text = text
+    await handle_message(update, context)
+
+
 # ── Nachrichten-Handler (→ Claude) ───────────────────────────────────────────
 
 @authorized_only
@@ -811,8 +863,9 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_ws_callback, pattern="^ws:"))
     app.add_handler(CallbackQueryHandler(handle_github_callback, pattern="^gh:"))
 
-    # Messages
+    # Messages (Text + Voice)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
 
     # Permission-Server lifecycle
     async def post_init(application):
