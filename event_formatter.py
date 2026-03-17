@@ -15,36 +15,40 @@ from claude_runner import RunEvent, EventType, split_for_telegram
 
 def markdown_to_telegram_html(text: str) -> str:
     """Konvertiert Claude's Markdown-Output in Telegram-taugliches HTML."""
-    # 1. HTML-Entities escapen (MUSS zuerst passieren)
-    text = html.escape(text)
+    try:
+        # 1. HTML-Entities escapen (MUSS zuerst passieren)
+        text = html.escape(text)
 
-    # 2. Code-Bloecke (```lang\n...\n```) → <pre>
-    text = re.sub(r'```\w*\n(.*?)```', r'<pre>\1</pre>', text, flags=re.DOTALL)
+        # 2. Code-Bloecke (```lang\n...\n```) → <pre>
+        text = re.sub(r'```\w*\n(.*?)```', r'<pre>\1</pre>', text, flags=re.DOTALL)
 
-    # 3. Inline-Code (`...`) → <code>
-    text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
+        # 3. Inline-Code (`...`) → <code>
+        text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
 
-    # 4. Bold (**text**) → <b>
-    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text, flags=re.DOTALL)
+        # 4. Bold (**text**) → <b>
+        text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text, flags=re.DOTALL)
 
-    # 5. Italic (*text*) → <i>  (nicht innerhalb von <b>)
-    text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<i>\1</i>', text)
+        # 5. Italic (*text*) → <i>  (nicht innerhalb von <b>)
+        text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<i>\1</i>', text)
 
-    # 6. Italic (_text_) → <i>  (nicht mitten in Woertern)
-    text = re.sub(r'(?<![a-zA-Z0-9])_(.+?)_(?![a-zA-Z0-9])', r'<i>\1</i>', text)
+        # 6. Italic (_text_) → <i>  (nicht mitten in Woertern)
+        text = re.sub(r'(?<![a-zA-Z0-9])_(.+?)_(?![a-zA-Z0-9])', r'<i>\1</i>', text)
 
-    # 7. Links [text](url) → <a>
-    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
+        # 7. Links [text](url) → <a>
+        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
 
-    # 8. Markdown-Header (### Text) → <b>Text</b> mit Newline
-    text = re.sub(r'^#{1,6}\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
+        # 8. Markdown-Header (### Text) → <b>Text</b> mit Newline
+        text = re.sub(r'^#{1,6}\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
 
-    return text
+        return text
+    except Exception:
+        return html.escape(text)
 
 EDIT_INTERVAL = 1.5
 MAX_THINKING_PREVIEW = 100
 MAX_TOOL_INPUT_PREVIEW = 60
 MAX_VISIBLE_TOOLS = 6
+MAX_ANSWER_BUFFER = 50000
 
 
 TOOL_ICONS = {
@@ -199,12 +203,23 @@ class EventFormatter:
             try:
                 await self._edit(self._status_msg, text)
             except Exception:
-                pass
+                # Stale message recovery: edit failed, send new message instead
+                self._status_msg = None
+                try:
+                    self._status_msg = await self._send(text)
+                except Exception:
+                    pass
 
     async def _flush_answer(self, force: bool = False) -> None:
         if not self._answer_buffer.strip():
             return
-        self._last_edit = time.monotonic()
+        now = time.monotonic()
+        if not force and now - self._last_edit < EDIT_INTERVAL:
+            return
+        self._last_edit = now
+        # Truncate from the beginning if buffer exceeds max size
+        if len(self._answer_buffer) > MAX_ANSWER_BUFFER:
+            self._answer_buffer = self._answer_buffer[-MAX_ANSWER_BUFFER:]
         formatted = markdown_to_telegram_html(self._answer_buffer)
         chunks = split_for_telegram(formatted)
         if self._answer_msg is None:
@@ -215,6 +230,11 @@ class EventFormatter:
             try:
                 await self._edit(self._answer_msg, chunks[0])
             except Exception:
-                pass
+                # Stale message recovery: edit failed, send new message instead
+                self._answer_msg = None
+                try:
+                    self._answer_msg = await self._send(chunks[0])
+                except Exception:
+                    pass
             for extra in chunks[1:]:
                 self._answer_msg = await self._send(extra)
