@@ -344,6 +344,9 @@ class ClaudeRunner:
         except json.JSONDecodeError:
             return [RunEvent(type=EventType.TEXT, content=line + "\n")]
 
+        if not isinstance(event, dict):
+            return [RunEvent(type=EventType.TEXT, content=line + "\n")]
+
         events = []
         event_type = event.get("type", "")
 
