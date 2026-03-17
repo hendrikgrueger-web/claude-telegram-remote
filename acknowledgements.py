@@ -29,22 +29,33 @@ async def generate_acknowledgement(user_prompt: str) -> str:
         "- Deutsch, kein Markdown\n"
         "- NUR der eine Satz, sonst nichts"
     )
+    proc = None
     try:
-        proc = await asyncio.wait_for(
-            asyncio.create_subprocess_exec(
+        async with asyncio.timeout(ACK_TIMEOUT):
+            proc = await asyncio.create_subprocess_exec(
                 CLAUDE_BIN, "-p", haiku_prompt,
                 "--model", "claude-haiku-4-5-20251001",
                 "--max-turns", "1",
                 "--no-session-persistence",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-            ),
-            timeout=ACK_TIMEOUT,
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=ACK_TIMEOUT)
-        result = stdout.decode("utf-8", errors="replace").strip()
-        if result and len(result) < 250:
-            return result
-    except (asyncio.TimeoutError, Exception) as e:
-        logger.debug("Haiku-Acknowledgement fehlgeschlagen: %s", e)
+            )
+            stdout, _ = await proc.communicate()
+            result = stdout.decode("utf-8", errors="replace").strip()
+            if result and len(result) < 250:
+                return result
+    except TimeoutError:
+        logger.debug("Haiku-Acknowledgement Timeout nach %.1fs", ACK_TIMEOUT)
+    except FileNotFoundError:
+        logger.error("CLAUDE_BIN nicht gefunden: %s", CLAUDE_BIN)
+    except Exception as e:
+        logger.error("Haiku-Acknowledgement fehlgeschlagen: %s", e, exc_info=True)
+    finally:
+        if proc and proc.returncode is None:
+            proc.terminate()
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=2.0)
+            except TimeoutError:
+                proc.kill()
+                await proc.wait()
     return FALLBACK
