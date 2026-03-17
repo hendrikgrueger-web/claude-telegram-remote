@@ -15,6 +15,7 @@ from claude_runner import RunEvent, EventType, split_for_telegram
 
 def markdown_to_telegram_html(text: str) -> str:
     """Konvertiert Claude's Markdown-Output in Telegram-taugliches HTML."""
+    original = text
     try:
         # 1. HTML-Entities escapen (MUSS zuerst passieren)
         text = html.escape(text)
@@ -42,7 +43,7 @@ def markdown_to_telegram_html(text: str) -> str:
 
         return text
     except Exception:
-        return html.escape(text)
+        return html.escape(original)
 
 EDIT_INTERVAL = 1.5
 MAX_THINKING_PREVIEW = 100
