@@ -8,7 +8,10 @@ import functools
 import json
 import logging
 import os
+import signal
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -34,11 +37,13 @@ load_dotenv()
 
 # ── Konfiguration ─────────────────────────────────────────────────────────────
 
-TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-ALLOWED_USER_ID = int(os.environ["ALLOWED_USER_ID"])
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
 DEFAULT_DIR = os.getenv("DEFAULT_WORKSPACE_DIR", "~/Coding")
 MAX_MESSAGE_LEN = 4000
 PERMISSION_PORT = int(os.getenv("PERMISSION_SERVER_PORT", "7429"))
+
+HEALTH_FILE = Path.home() / ".config" / "claude-telegram" / "bot.health"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,6 +67,23 @@ _session_registry: dict[str, dict] = {}
 _github_registry: dict[str, dict] = {}
 
 
+# ── Heartbeat ────────────────────────────────────────────────────────────────
+
+async def _heartbeat_loop():
+    """Writes current timestamp to health file every 30 seconds.
+    Allows an external watchdog to detect event-loop hangs.
+    """
+    HEALTH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        try:
+            tmp = HEALTH_FILE.with_suffix(".tmp")
+            tmp.write_text(str(time.time()))
+            tmp.rename(HEALTH_FILE)
+        except Exception as e:
+            logger.debug("Heartbeat write failed: %s", e)
+        await asyncio.sleep(30)
+
+
 # ── Permission-Callback ───────────────────────────────────────────────────────
 
 # Message-IDs der Permission-Nachrichten (request_id → message_id)
@@ -70,41 +92,48 @@ _perm_messages: dict[str, int] = {}
 
 async def on_permission_request(req):
     """Wird vom PermissionServer aufgerufen — zeigt Telegram Inline-Keyboard."""
-    if not _bot_instance:
-        req.decision = "allow"
-        req.event.set()
-        return
+    try:
+        if not _bot_instance:
+            req.decision = "allow"
+            req.event.set()
+            return
 
-    import html as html_mod
-    icon = "🛑" if req.category == ToolCategory.DESTRUCTIVE else "⚠️"
-    timeout_info = ""
-    if req.category == ToolCategory.MODIFYING:
-        timeout_info = "\n⏱ <i>Auto-accept in 60s</i>"
-    elif req.category == ToolCategory.DESTRUCTIVE:
-        timeout_info = "\n🛑 <i>Wartet auf deine Entscheidung</i>"
+        import html as html_mod
+        icon = "🛑" if req.category == ToolCategory.DESTRUCTIVE else "⚠️"
+        timeout_info = ""
+        if req.category == ToolCategory.MODIFYING:
+            timeout_info = "\n⏱ <i>Auto-accept in 60s</i>"
+        elif req.category == ToolCategory.DESTRUCTIVE:
+            timeout_info = "\n🛑 <i>Wartet auf deine Entscheidung</i>"
 
-    detail = json.dumps(req.tool_input, indent=2, ensure_ascii=False)
-    if len(detail) > 500:
-        detail = detail[:500] + "..."
+        detail = json.dumps(req.tool_input, indent=2, ensure_ascii=False)
+        if len(detail) > 500:
+            detail = detail[:500] + "..."
 
-    text = (
-        f"{icon} <b>Permission: {html_mod.escape(req.tool_name)}</b>\n"
-        f"<pre>{html_mod.escape(detail)}</pre>"
-        f"{timeout_info}"
-    )
+        text = (
+            f"{icon} <b>Permission: {html_mod.escape(req.tool_name)}</b>\n"
+            f"<pre>{html_mod.escape(detail)}</pre>"
+            f"{timeout_info}"
+        )
 
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Erlauben", callback_data=f"perm:allow:{req.request_id}"),
-        InlineKeyboardButton("❌ Blockieren", callback_data=f"perm:block:{req.request_id}"),
-    ]])
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Erlauben", callback_data=f"perm:allow:{req.request_id}"),
+            InlineKeyboardButton("❌ Blockieren", callback_data=f"perm:block:{req.request_id}"),
+        ]])
 
-    msg = await _bot_instance.send_message(
-        chat_id=ALLOWED_USER_ID,
-        text=text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboard,
-    )
-    _perm_messages[req.request_id] = msg.message_id
+        msg = await _bot_instance.send_message(
+            chat_id=ALLOWED_USER_ID,
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard,
+        )
+        _perm_messages[req.request_id] = msg.message_id
+    except Exception as e:
+        # On failure, auto-allow so Claude never blocks forever
+        logger.error("on_permission_request failed, auto-allowing: %s", e, exc_info=True)
+        if not req.event.is_set():
+            req.decision = "allow"
+            req.event.set()
 
 
 async def on_auto_accept(req):
@@ -566,148 +595,233 @@ async def cmd_github(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_ws_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Verarbeitet Workspace-Switch-Buttons aus /sessions."""
-    query = update.callback_query
-    if not query or not query.data:
-        return
-    if update.effective_user and update.effective_user.id != ALLOWED_USER_ID:
-        await query.answer("Nicht autorisiert.")
-        return
-
     try:
-        await query.answer()
-    except Exception:
-        pass
+        query = update.callback_query
+        if not query or not query.data:
+            return
+        if update.effective_user and update.effective_user.id != ALLOWED_USER_ID:
+            await query.answer("Nicht autorisiert.")
+            return
 
-    import html as html_mod
-
-    parts = query.data.split(":", 3)
-    if not parts or parts[0] != "ws":
-        return
-
-    action = parts[1] if len(parts) > 1 else ""
-
-    if action == "switch" and len(parts) >= 3:
-        name = parts[2]
         try:
-            ws = ws_manager.switch(name)
-            directory = ws["directory"].replace(os.path.expanduser("~"), "~")
-            session_info = "bestehende Session 💬" if ws.get("session_id") else "neue Session ○"
+            await query.answer()
+        except Exception:
+            pass
+
+        import html as html_mod
+
+        parts = query.data.split(":", 3)
+        if not parts or parts[0] != "ws":
+            return
+
+        action = parts[1] if len(parts) > 1 else ""
+
+        if action == "switch" and len(parts) >= 3:
+            name = parts[2]
+            try:
+                ws = ws_manager.switch(name)
+                directory = ws["directory"].replace(os.path.expanduser("~"), "~")
+                session_info = "bestehende Session 💬" if ws.get("session_id") else "neue Session ○"
+                await query.edit_message_text(
+                    f"✅ Gewechselt zu <b>{html_mod.escape(name)}</b>\n"
+                    f"📁 <code>{html_mod.escape(directory)}</code>\n"
+                    f"💬 {session_info}",
+                    parse_mode=ParseMode.HTML,
+                )
+            except KeyError:
+                await query.edit_message_text(f"❌ Workspace '{name}' nicht gefunden.")
+            except Exception as e:
+                await query.edit_message_text(f"❌ Fehler: {e}")
+
+        elif action == "open" and len(parts) >= 3:
+            # Neue Session aus Registry laden
+            key = parts[2]
+            entry = _session_registry.get(key)
+            if not entry:
+                await query.edit_message_text("❌ Session nicht mehr verfügbar. /sessions neu laden.")
+                return
+            directory = entry["directory"]
+            session_id = entry["session_id"]
+            dir_name = Path(directory).name
+            # Workspace-Namen aus Verzeichnis-Name ableiten (einmalig)
+            ws_name = dir_name
+            counter = 1
+            while ws_name in ws_manager.list_names():
+                ws_name = f"{dir_name}-{counter}"
+                counter += 1
+            ws = ws_manager.switch(ws_name, directory=directory)
+            ws_manager.set_session_id(session_id)
+            short_dir = directory.replace(os.path.expanduser("~"), "~")
             await query.edit_message_text(
-                f"✅ Gewechselt zu <b>{html_mod.escape(name)}</b>\n"
-                f"📁 <code>{html_mod.escape(directory)}</code>\n"
-                f"💬 {session_info}",
+                f"✅ Session geöffnet als <b>{html_mod.escape(ws_name)}</b>\n"
+                f"📁 <code>{html_mod.escape(short_dir)}</code>\n"
+                f"💬 Session wiederhergestellt",
                 parse_mode=ParseMode.HTML,
             )
-        except KeyError:
-            await query.edit_message_text(f"❌ Workspace '{name}' nicht gefunden.")
-        except Exception as e:
-            await query.edit_message_text(f"❌ Fehler: {e}")
-
-    elif action == "open" and len(parts) >= 3:
-        # Neue Session aus Registry laden
-        key = parts[2]
-        entry = _session_registry.get(key)
-        if not entry:
-            await query.edit_message_text("❌ Session nicht mehr verfügbar. /sessions neu laden.")
-            return
-        directory = entry["directory"]
-        session_id = entry["session_id"]
-        dir_name = Path(directory).name
-        # Workspace-Namen aus Verzeichnis-Name ableiten (einmalig)
-        ws_name = dir_name
-        counter = 1
-        while ws_name in ws_manager.list_names():
-            ws_name = f"{dir_name}-{counter}"
-            counter += 1
-        ws = ws_manager.switch(ws_name, directory=directory)
-        ws_manager.set_session_id(session_id)
-        short_dir = directory.replace(os.path.expanduser("~"), "~")
-        await query.edit_message_text(
-            f"✅ Session geöffnet als <b>{html_mod.escape(ws_name)}</b>\n"
-            f"📁 <code>{html_mod.escape(short_dir)}</code>\n"
-            f"💬 Session wiederhergestellt",
-            parse_mode=ParseMode.HTML,
-        )
+    except Exception as e:
+        logger.error("Unhandled error in handle_ws_callback: %s", e, exc_info=True)
 
 
 # ── GitHub Repo Callback ──────────────────────────────────────────────────────
 
 async def handle_github_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Zeigt Details zu einem GitHub-Repo wenn Nummer geklickt wird."""
-    query = update.callback_query
-    if not query or not query.data:
-        return
-    if update.effective_user and update.effective_user.id != ALLOWED_USER_ID:
-        await query.answer("Nicht autorisiert.")
-        return
     try:
-        await query.answer()
-    except Exception:
-        pass
+        query = update.callback_query
+        if not query or not query.data:
+            return
+        if update.effective_user and update.effective_user.id != ALLOWED_USER_ID:
+            await query.answer("Nicht autorisiert.")
+            return
+        try:
+            await query.answer()
+        except Exception:
+            pass
 
-    import html as html_mod
-    num = query.data.split(":", 1)[1]
-    repo = _github_registry.get(num)
-    if not repo:
-        await query.edit_message_text("❌ Repo nicht mehr verfügbar. /github neu laden.")
-        return
+        import html as html_mod
+        num = query.data.split(":", 1)[1]
+        repo = _github_registry.get(num)
+        if not repo:
+            await query.edit_message_text("❌ Repo nicht mehr verfügbar. /github neu laden.")
+            return
 
-    name = repo["name"]
-    desc = repo.get("description") or "–"
-    icon = "🔒 Privat" if repo.get("isPrivate") else "🌍 Public"
-    gh_user = repo.get("_owner", "")
-    if not gh_user:
-        # Aus nameWithOwner ableiten falls vorhanden, sonst leer lassen
-        nwo = repo.get("nameWithOwner", "")
-        gh_user = nwo.split("/")[0] if "/" in nwo else ""
-    prefix = f"github.com/{gh_user}" if gh_user else "github.com/<user>"
-    clone_https = f"https://{prefix}/{name}.git"
-    clone_ssh = f"git@github.com:{gh_user}/{name}.git" if gh_user else f"git@github.com:<user>/{name}.git"
+        name = repo["name"]
+        desc = repo.get("description") or "–"
+        icon = "🔒 Privat" if repo.get("isPrivate") else "🌍 Public"
+        gh_user = repo.get("_owner", "")
+        if not gh_user:
+            # Aus nameWithOwner ableiten falls vorhanden, sonst leer lassen
+            nwo = repo.get("nameWithOwner", "")
+            gh_user = nwo.split("/")[0] if "/" in nwo else ""
+        prefix = f"github.com/{gh_user}" if gh_user else "github.com/<user>"
+        clone_https = f"https://{prefix}/{name}.git"
+        clone_ssh = f"git@github.com:{gh_user}/{name}.git" if gh_user else f"git@github.com:<user>/{name}.git"
 
-    await query.edit_message_text(
-        f"📦 <b>{html_mod.escape(name)}</b>  {icon}\n\n"
-        f"<i>{html_mod.escape(desc)}</i>\n\n"
-        f"<b>HTTPS:</b>\n<code>git clone {html_mod.escape(clone_https)}</code>\n\n"
-        f"<b>SSH:</b>\n<code>git clone {html_mod.escape(clone_ssh)}</code>",
-        parse_mode=ParseMode.HTML,
-    )
+        await query.edit_message_text(
+            f"📦 <b>{html_mod.escape(name)}</b>  {icon}\n\n"
+            f"<i>{html_mod.escape(desc)}</i>\n\n"
+            f"<b>HTTPS:</b>\n<code>git clone {html_mod.escape(clone_https)}</code>\n\n"
+            f"<b>SSH:</b>\n<code>git clone {html_mod.escape(clone_ssh)}</code>",
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception as e:
+        logger.error("Unhandled error in handle_github_callback: %s", e, exc_info=True)
 
 
 # ── Permission-Button Handler ─────────────────────────────────────────────────
 
 async def handle_permission_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Verarbeitet Permission-Button Clicks."""
-    query = update.callback_query
-    if not query or not query.data:
+    try:
+        query = update.callback_query
+        if not query or not query.data:
+            return
+        if update.effective_user and update.effective_user.id != ALLOWED_USER_ID:
+            await query.answer("Nicht autorisiert.")
+            return
+
+        try:
+            await query.answer()
+        except Exception:
+            pass  # Query kann veraltet sein — trotzdem resolve versuchen
+
+        parts = query.data.split(":", 2)
+        if len(parts) != 3 or parts[0] != "perm":
+            return
+
+        action = parts[1]      # "allow" oder "block"
+        request_id = parts[2]  # "perm_N"
+
+        decision = "allow" if action == "allow" else "block"
+        resolved = perm_server.resolve(request_id, decision)
+        _perm_messages.pop(request_id, None)
+
+        try:
+            if resolved:
+                emoji = "✅ Erlaubt" if decision == "allow" else "❌ Blockiert"
+                await query.edit_message_text(emoji)
+            else:
+                await query.edit_message_text("⏱ Bereits automatisch freigegeben (60s Timeout)")
+        except Exception:
+            pass  # Message kann bereits editiert sein
+    except Exception as e:
+        logger.error("Unhandled error in handle_permission_callback: %s", e, exc_info=True)
+
+
+# ── Shared prompt processing logic ──────────────────────────────────────────
+
+async def _process_prompt(text: str, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Core logic shared by handle_message and handle_voice.
+
+    Expects text to be non-None and already validated for length.
+    Expects runner.is_busy() to have been checked by the caller.
+    """
+    ws = ws_manager.get_active()
+    session_id = ws.get("session_id")
+
+    # Workspace directory validation
+    ws_dir = Path(ws["directory"]).expanduser()
+    if not ws_dir.exists():
+        ws_name = ws_manager.get_active_name()
+        await update.message.reply_text(
+            f"❌ Workspace-Verzeichnis existiert nicht:\n`{ws['directory']}`\n\n"
+            f"Workspace *{ws_name}* wechseln mit /ws oder /sessions.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
         return
-    if update.effective_user and update.effective_user.id != ALLOWED_USER_ID:
-        await query.answer("Nicht autorisiert.")
-        return
+
+    # Sofortige KI-Bestätigung senden (Haiku, Fallback auf Zufallsnachricht)
+    ack_text = await generate_acknowledgement(text)
+    await update.message.reply_text(ack_text)
+
+    prompt = text
+    if ws_manager.get_plan_mode():
+        prompt = f"Erstelle einen detaillierten Plan fuer folgende Aufgabe. Implementiere NICHTS, plane nur:\n\n{text}"
+
+    async def send_fn(content: str):
+        try:
+            return await update.message.reply_text(content, parse_mode=ParseMode.HTML)
+        except Exception:
+            # Fallback ohne Formatierung bei Parse-Fehlern
+            return await update.message.reply_text(content)
+
+    async def edit_fn(msg, content: str):
+        try:
+            await msg.edit_text(content, parse_mode=ParseMode.HTML)
+        except Exception:
+            try:
+                await msg.edit_text(content)
+            except Exception:
+                pass
+
+    formatter = EventFormatter(send_fn=send_fn, edit_fn=edit_fn)
 
     try:
-        await query.answer()
-    except Exception:
-        pass  # Query kann veraltet sein — trotzdem resolve versuchen
+        new_session_id = await runner.run(
+            prompt=prompt,
+            directory=ws["directory"],
+            session_id=session_id,
+            on_event=formatter.handle_event,
+            model=ws_manager.get_model(),
+        )
+        await formatter.finalize()
 
-    parts = query.data.split(":", 2)
-    if len(parts) != 3 or parts[0] != "perm":
-        return
+        if new_session_id:
+            ws_manager.set_session_id(new_session_id)
 
-    action = parts[1]      # "allow" oder "block"
-    request_id = parts[2]  # "perm_N"
-
-    decision = "allow" if action == "allow" else "block"
-    resolved = perm_server.resolve(request_id, decision)
-    _perm_messages.pop(request_id, None)
-
-    try:
-        if resolved:
-            emoji = "✅ Erlaubt" if decision == "allow" else "❌ Blockiert"
-            await query.edit_message_text(emoji)
-        else:
-            await query.edit_message_text("⏱ Bereits automatisch freigegeben (60s Timeout)")
-    except Exception:
-        pass  # Message kann bereits editiert sein
+    except SessionExpiredError:
+        ws_manager.clear_session_id()
+        await update.message.reply_text(
+            "⚠️ Session abgelaufen — neues Gespräch gestartet. Bitte nochmal senden."
+        )
+    except asyncio.TimeoutError:
+        await update.message.reply_text(
+            f"⏱ Timeout nach {os.getenv('CLAUDE_TIMEOUT_SECONDS', '300')}s. "
+            "Mit /stop bereinigen und nochmal versuchen."
+        )
+    except Exception as e:
+        logger.error("Unbehandelter Fehler: %s", e, exc_info=True)
+        await update.message.reply_text("Ein Fehler ist aufgetreten. Details im Log.")
 
 
 # ── Voice-Handler ────────────────────────────────────────────────────────────
@@ -715,6 +829,9 @@ async def handle_permission_callback(update: Update, context: ContextTypes.DEFAU
 @authorized_only
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Empfaengt Sprachnachrichten, transkribiert via Whisper, leitet an Claude weiter."""
+    if update.message is None:
+        return
+
     if runner.is_busy():
         await update.message.reply_text("⏳ Claude arbeitet noch. Mit /stop abbrechen.")
         return
@@ -756,15 +873,25 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"📝 *Transkription:*\n_{text}_", parse_mode=ParseMode.MARKDOWN)
 
-    # Simuliere Text-Nachricht mit dem transkribierten Text
-    update.message.text = text
-    await handle_message(update, context)
+    # Re-check busy state after transcription (race condition guard)
+    if runner.is_busy():
+        await update.message.reply_text("⏳ Claude ist in der Zwischenzeit beschäftigt. Bitte warte und sende den Text erneut.")
+        return
+
+    if len(text) > MAX_MESSAGE_LEN:
+        await update.message.reply_text(f"Transkription zu lang ({len(text)}/{MAX_MESSAGE_LEN} Zeichen).")
+        return
+
+    await _process_prompt(text, update, context)
 
 
 # ── Nachrichten-Handler (→ Claude) ───────────────────────────────────────────
 
 @authorized_only
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message is None or update.message.text is None:
+        return
+
     if runner.is_busy():
         await update.message.reply_text("⏳ Claude arbeitet noch. Mit /stop abbrechen.")
         return
@@ -774,66 +901,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Nachricht zu lang ({len(text)}/{MAX_MESSAGE_LEN} Zeichen).")
         return
 
-    ws = ws_manager.get_active()
-    session_id = ws.get("session_id")
-
-    # Sofortige KI-Bestätigung senden (Haiku, Fallback auf Zufallsnachricht)
-    ack_text = await generate_acknowledgement(text)
-    await update.message.reply_text(ack_text)
-
-    if ws_manager.get_plan_mode():
-        text = f"Erstelle einen detaillierten Plan fuer folgende Aufgabe. Implementiere NICHTS, plane nur:\n\n{text}"
-
-    async def send_fn(content: str):
-        try:
-            return await update.message.reply_text(content, parse_mode=ParseMode.HTML)
-        except Exception:
-            # Fallback ohne Formatierung bei Parse-Fehlern
-            return await update.message.reply_text(content)
-
-    async def edit_fn(msg, content: str):
-        try:
-            await msg.edit_text(content, parse_mode=ParseMode.HTML)
-        except Exception:
-            try:
-                await msg.edit_text(content)
-            except Exception:
-                pass
-
-    formatter = EventFormatter(send_fn=send_fn, edit_fn=edit_fn)
-
-    try:
-        new_session_id = await runner.run(
-            prompt=text,
-            directory=ws["directory"],
-            session_id=session_id,
-            on_event=formatter.handle_event,
-            model=ws_manager.get_model(),
-        )
-        await formatter.finalize()
-
-        if new_session_id:
-            ws_manager.set_session_id(new_session_id)
-
-    except SessionExpiredError:
-        ws_manager.clear_session_id()
-        await update.message.reply_text(
-            "⚠️ Session abgelaufen — neues Gespräch gestartet. Bitte nochmal senden."
-        )
-    except asyncio.TimeoutError:
-        await update.message.reply_text(
-            f"⏱ Timeout nach {os.getenv('CLAUDE_TIMEOUT_SECONDS', '300')}s. "
-            "Mit /stop bereinigen und nochmal versuchen."
-        )
-    except Exception as e:
-        logger.error("Unbehandelter Fehler: %s", e, exc_info=True)
-        await update.message.reply_text("Ein Fehler ist aufgetreten. Details im Log.")
+    await _process_prompt(text, update, context)
 
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
 
+def _validate_startup():
+    """Validates required environment variables and tools exist. Exits on failure."""
+    errors = []
+
+    if not TOKEN:
+        errors.append("TELEGRAM_BOT_TOKEN ist nicht gesetzt.")
+
+    if not ALLOWED_USER_ID:
+        errors.append("ALLOWED_USER_ID ist nicht gesetzt.")
+
+    if not CLAUDE_BIN:
+        errors.append("CLAUDE_BIN ist nicht gesetzt.")
+    else:
+        claude_path = Path(CLAUDE_BIN).expanduser()
+        # Only check existence for absolute paths (not bare commands like "claude")
+        if os.sep in CLAUDE_BIN and not claude_path.exists():
+            errors.append(f"CLAUDE_BIN nicht gefunden: {CLAUDE_BIN}")
+
+    if errors:
+        for err in errors:
+            logger.error("Startup-Fehler: %s", err)
+        print(f"FATAL: Startup validation failed:\n" + "\n".join(f"  - {e}" for e in errors), file=sys.stderr)
+        sys.exit(1)
+
+
 def main():
     global _bot_instance
+
+    # Startup validation
+    _validate_startup()
 
     app = Application.builder().token(TOKEN).build()
     _bot_instance = app.bot
@@ -867,15 +969,63 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
 
-    # Permission-Server lifecycle
+    # Permission-Server lifecycle + heartbeat
     async def post_init(application):
         await perm_server.start()
+        asyncio.create_task(_heartbeat_loop(), name="heartbeat")
 
     async def post_shutdown(application):
         await perm_server.stop()
 
     app.post_init = post_init
     app.post_shutdown = post_shutdown
+
+    # Global exception handler for the event loop
+    def _loop_exception_handler(loop, context):
+        exc = context.get("exception")
+        msg = context.get("message", "")
+        if exc:
+            logger.error("Unhandled event-loop exception: %s — %s", msg, exc, exc_info=exc)
+        else:
+            logger.error("Unhandled event-loop exception: %s", msg)
+
+    # Graceful shutdown via SIGTERM/SIGINT
+    _shutdown_triggered = False
+
+    async def _graceful_shutdown(sig):
+        nonlocal _shutdown_triggered
+        if _shutdown_triggered:
+            return
+        _shutdown_triggered = True
+        logger.info("Signal %s empfangen — starte graceful shutdown...", sig.name)
+        try:
+            await runner.stop()
+        except Exception as e:
+            logger.error("Runner stop failed during shutdown: %s", e)
+        try:
+            await perm_server.stop()
+        except Exception as e:
+            logger.error("PermServer stop failed during shutdown: %s", e)
+        # Let python-telegram-bot handle its own cleanup via the updater
+        # by stopping the event loop
+        loop = asyncio.get_event_loop()
+        loop.stop()
+
+    def _signal_handler(sig):
+        loop = asyncio.get_event_loop()
+        loop.create_task(_graceful_shutdown(sig))
+
+    # Install signal handlers after the event loop is running (inside post_init)
+    original_post_init = app.post_init
+
+    async def post_init_with_signals(application):
+        await original_post_init(application)
+        loop = asyncio.get_event_loop()
+        loop.set_exception_handler(_loop_exception_handler)
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, _signal_handler, sig)
+
+    app.post_init = post_init_with_signals
 
     logger.info("Bot gestartet. Workspace: %s", ws_manager.get_active_name())
     app.run_polling(allowed_updates=["message", "callback_query"])
