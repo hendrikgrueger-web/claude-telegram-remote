@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-ACK_MODEL = os.getenv("ACK_MODEL", "anthropic/claude-3-5-haiku")
+ACK_MODEL = os.getenv("ACK_MODEL", "google/gemini-3.1-flash-lite-preview")
 ACK_TIMEOUT = float(os.getenv("ACK_TIMEOUT", "5.0"))
 USER_NAME = os.getenv("USER_NAME", "")
 
