@@ -918,6 +918,54 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _process_prompt(text, update, context)
 
 
+# ── Photo-Handler ────────────────────────────────────────────────────────────
+
+@authorized_only
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Empfaengt Bilder/Screenshots, speichert sie im Workspace, leitet an Claude weiter."""
+    if update.message is None:
+        return
+
+    if runner.is_busy():
+        await update.message.reply_text("⏳ Claude arbeitet noch. Mit /stop abbrechen.")
+        return
+
+    photos = update.message.photo
+    if not photos:
+        await update.message.reply_text("❌ Kein Bild gefunden.")
+        return
+
+    # Hoechste Aufloesung nehmen (letztes Element)
+    photo = photos[-1]
+    caption = update.message.caption or ""
+
+    # Bild im Workspace speichern
+    ws = ws_manager.get_active()
+    ws_dir = Path(ws["directory"]).expanduser()
+    img_dir = ws_dir / ".telegram-images"
+    img_dir.mkdir(parents=True, exist_ok=True)
+
+    import tempfile
+    tg_file = await context.bot.get_file(photo.file_id)
+    ext = Path(tg_file.file_path or "img.jpg").suffix or ".jpg"
+    img_path = img_dir / f"telegram_{int(time.time())}{ext}"
+    await tg_file.download_to_drive(str(img_path))
+
+    await update.message.reply_text(f"🖼️ Bild empfangen ({photo.width}x{photo.height})")
+
+    # Prompt bauen: Bild-Pfad + optionale Caption
+    if caption:
+        prompt = f"Ich schicke dir ein Bild. Bitte lies es mit dem Read-Tool: {img_path}\n\nMeine Anweisung dazu: {caption}"
+    else:
+        prompt = f"Ich schicke dir ein Bild/Screenshot. Bitte lies und analysiere es mit dem Read-Tool: {img_path}"
+
+    if runner.is_busy():
+        await update.message.reply_text("⏳ Claude ist in der Zwischenzeit beschäftigt.")
+        return
+
+    await _process_prompt(prompt, update, context)
+
+
 # ── Nachrichten-Handler (→ Claude) ───────────────────────────────────────────
 
 @authorized_only
@@ -998,9 +1046,10 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_ws_callback, pattern="^ws:"))
     app.add_handler(CallbackQueryHandler(handle_github_callback, pattern="^gh:"))
 
-    # Messages (Text + Voice)
+    # Messages (Text + Voice + Photos)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
     # Permission-Server lifecycle + heartbeat
     async def post_init(application):
