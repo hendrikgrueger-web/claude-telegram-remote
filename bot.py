@@ -40,6 +40,7 @@ load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
 DEFAULT_DIR = os.getenv("DEFAULT_WORKSPACE_DIR", "~/Coding")
+USER_NAME = os.getenv("USER_NAME", "")
 MAX_MESSAGE_LEN = 4000
 PERMISSION_PORT = int(os.getenv("PERMISSION_SERVER_PORT", "7429"))
 
@@ -169,6 +170,21 @@ def authorized_only(func):
 
 
 # ── Command Handler ───────────────────────────────────────────────────────────
+
+@authorized_only
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    name = USER_NAME or update.effective_user.first_name or "du"
+    ws_name = ws_manager.get_active_name()
+    text = (
+        f"👋 Hey {name}! Schön, dass du da bist.\n\n"
+        f"Ich bin dein Claude Code Remote — dein persönlicher Coding-Butler. "
+        f"Schick mir einfach was du brauchst, und ich kümmere mich drum.\n\n"
+        f"📂 Aktueller Workspace: *{ws_name}*\n"
+        f"🎙️ Sprachnachrichten? Klar, einfach reinquatschen.\n\n"
+        f"Tipp: /help zeigt dir alle Befehle."
+    )
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
 
 @authorized_only
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -963,7 +979,7 @@ def main():
 
     # Commands
     app.add_handler(CommandHandler("help", cmd_help))
-    app.add_handler(CommandHandler("start", cmd_help))
+    app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("stop", cmd_stop))
     app.add_handler(CommandHandler("ws", cmd_ws))

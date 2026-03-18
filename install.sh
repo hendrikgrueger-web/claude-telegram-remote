@@ -60,6 +60,7 @@ if [ ! -f "$INSTALL_DIR/.env" ]; then
     echo ""
     echo "📝 Bitte .env befüllen:"
     echo ""
+    read -p "   Wie heisst du? " USER_NAME
     read -p "   Telegram Bot Token (von @BotFather): " BOT_TOKEN
     read -p "   Deine Telegram User-ID (von @userinfobot): " USER_ID
     read -p "   Standard-Verzeichnis [~/Coding]: " WORK_DIR
@@ -68,6 +69,7 @@ if [ ! -f "$INSTALL_DIR/.env" ]; then
     sed -i '' "s|your_token_here|$BOT_TOKEN|" "$INSTALL_DIR/.env"
     sed -i '' "s|123456789|$USER_ID|" "$INSTALL_DIR/.env"
     sed -i '' "s|~/Coding|$WORK_DIR|" "$INSTALL_DIR/.env"
+    sed -i '' "s|USER_NAME=|USER_NAME=$USER_NAME|" "$INSTALL_DIR/.env"
 
     # Claude-Pfad automatisch eintragen
     if [ -n "$CLAUDE_PATH" ]; then

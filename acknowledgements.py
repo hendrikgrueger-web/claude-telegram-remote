@@ -14,16 +14,22 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 ACK_MODEL = os.getenv("ACK_MODEL", "anthropic/claude-3-5-haiku")
 ACK_TIMEOUT = float(os.getenv("ACK_TIMEOUT", "5.0"))
+USER_NAME = os.getenv("USER_NAME", "")
 
 FALLBACK = "📨 Nachricht erhalten — Claude arbeitet daran..."
 
-_SYSTEM_PROMPT = (
-    "Confirm incoming tasks in one sentence. "
-    "Summarize concretely what the user wants and what will happen now. "
-    "Rules: Fitting emoji at the start. Max 20 words. No Markdown. ONLY the one sentence. "
-    "CRITICAL: Reply in the SAME LANGUAGE the user wrote in. "
-    "German message → German reply. English message → English reply."
-)
+
+def _build_system_prompt() -> str:
+    name_hint = f" The user's name is {USER_NAME} — use it occasionally." if USER_NAME else ""
+    return (
+        "Confirm incoming tasks in one sentence. "
+        "Summarize concretely what the user wants and what will happen now. "
+        "Use informal 'du' (never 'Sie'). Be smart and slightly witty. "
+        "Rules: Fitting emoji at the start. Max 20 words. No Markdown. ONLY the one sentence. "
+        "CRITICAL: Reply in the SAME LANGUAGE the user wrote in. "
+        "German message → German reply. English message → English reply."
+        + name_hint
+    )
 
 
 async def generate_acknowledgement(user_prompt: str) -> str:
@@ -39,7 +45,7 @@ async def generate_acknowledgement(user_prompt: str) -> str:
                     "model": ACK_MODEL,
                     "max_tokens": 80,
                     "messages": [
-                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        {"role": "system", "content": _build_system_prompt()},
                         {"role": "user", "content": user_prompt[:400]},
                     ],
                 },
