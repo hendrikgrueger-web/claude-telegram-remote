@@ -16,7 +16,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.constants import ParseMode
+from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -796,6 +796,20 @@ async def _process_prompt(text: str, update: Update, context: ContextTypes.DEFAU
 
     formatter = EventFormatter(send_fn=send_fn, edit_fn=edit_fn)
 
+    # "schreibt..." Indikator alle 4s senden, solange Claude arbeitet
+    chat_id = update.effective_chat.id
+    typing_active = True
+
+    async def _typing_loop():
+        while typing_active:
+            try:
+                await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            except Exception:
+                pass
+            await asyncio.sleep(4)
+
+    typing_task = asyncio.create_task(_typing_loop())
+
     try:
         new_session_id = await runner.run(
             prompt=prompt,
@@ -822,6 +836,9 @@ async def _process_prompt(text: str, update: Update, context: ContextTypes.DEFAU
     except Exception as e:
         logger.error("Unbehandelter Fehler: %s", e, exc_info=True)
         await update.message.reply_text("Ein Fehler ist aufgetreten. Details im Log.")
+    finally:
+        typing_active = False
+        typing_task.cancel()
 
 
 # ── Voice-Handler ────────────────────────────────────────────────────────────
